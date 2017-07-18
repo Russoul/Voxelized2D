@@ -1,1 +1,1 @@
-# pixel-game
+# Voxelized2D
