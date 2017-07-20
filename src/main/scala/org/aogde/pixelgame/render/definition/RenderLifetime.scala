@@ -10,3 +10,7 @@ trait RenderLifetime{
 object LifetimeOneDraw extends RenderLifetime{
   override def name(): String = "LifetimeOneDraw"
 }
+
+object LifetimeManual extends RenderLifetime{ //will be rendered until manually removed
+  override def name(): String = "LifetimeManual"
+}

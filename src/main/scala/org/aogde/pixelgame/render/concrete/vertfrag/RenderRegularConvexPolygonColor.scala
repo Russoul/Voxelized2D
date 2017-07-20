@@ -1,6 +1,6 @@
 package org.aogde.pixelgame.render.concrete.vertfrag
 
-import org.aogde.pixelgame.render.definition.{RendererVertFrag, RendererVertFragDefault}
+import org.aogde.pixelgame.render.definition.{AttribPointersVertFrag, RendererVertFrag, RendererVertFragDefault}
 import org.lwjgl.opengl.GL20._
 import org.lwjgl.opengl.GL11._
 import russoul.lib.common._
@@ -12,7 +12,7 @@ import shapeless.ops.nat.ToInt
 /**
   * Created by russoul on 15.07.2017.
   */
-class RenderRegularConvexPolygonColor extends RendererVertFragDefault{
+class RenderRegularConvexPolygonColor extends RendererVertFragDefault with AttribPointersVertFrag{
   override val renderMode: Int = GL_TRIANGLES
   override val vertexSize: Int = 6 //vec3 as pos with depth + vec3 as color
 
@@ -56,16 +56,9 @@ class RenderRegularConvexPolygonColor extends RendererVertFragDefault{
     indexPool += vertexCount
     indexPool += shape.getN() + vertexCount
 
-    vertexCount += shape.getN()
+    vertexCount += shape.getN() + 1
   }
 
-  override def setAttributePointers(): Unit = {
-    glVertexAttribPointer(0, 3, GL_FLOAT, false, vertexSize * 4, 0)
-    glEnableVertexAttribArray(0)
-
-    glVertexAttribPointer(1, 3, GL_FLOAT, false, vertexSize * 4, 3 * 4)
-    glEnableVertexAttribArray(1)
-  }
 
   override def getShaderName(): String = "color"
 }

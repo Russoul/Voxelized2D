@@ -11,7 +11,7 @@ import russoul.lib.common.utils.Arr
 
 //this class should be used to register and provide for use ANY game action (logic,events,updates,rendering,sounds,tiles,...)
 //TODO for now all registry is common, later add support for packages (games ships with core package, modifications can be provided by adding custom packages)
-class GameRegistry(private val game: PixelGame) { registry =>
+class GameRegistry(private val game: Voxelized2D) { registry =>
 
   private val packs = new Arr[IPack]()
 
@@ -29,6 +29,11 @@ class GameRegistry(private val game: PixelGame) { registry =>
   }
 
   object Pack{ //code for packs
+
+    val renderer = game.renderingEngine
+    def windowInfoConst() = game.getConstWindowInfo()
+
+
     def addKeyCallback(callback: GLFWKeyCallbackI) : Boolean = {
       if(!game.keyCallback.callbacks.contains(callback)){
         game.keyCallback.callbacks += callback

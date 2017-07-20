@@ -20,10 +20,10 @@ import russoul.lib.common._
   * Created by russoul on 14.07.2017.
   */
 
-object PixelGame{
-  var instance : PixelGame = _ //TODO good idea ?
+object Voxelized2D{
+  var instance : Voxelized2D = _ //TODO good idea ?
 }
-class PixelGame{
+class Voxelized2D{
 
   val renderingEngine = new RenderingEngine(this)
   val keyCallback = new GameKeyCallback(this)
@@ -65,7 +65,7 @@ class PixelGame{
 
 
     // Create the window
-    windowInfo.setID(glfwCreateWindow(300, 300, "Pixel-Game", NULL, NULL))
+    windowInfo.setID(glfwCreateWindow(windowInfo.getWidth().toInt, windowInfo.getHeight().toInt, "Pixel-Game", NULL, NULL))
     if (windowInfo.getID() == NULL) throw new RuntimeException("Failed to create the GLFW window")
 
     // Setup a key callback. It will be called every time a key is pressed, repeated or released.

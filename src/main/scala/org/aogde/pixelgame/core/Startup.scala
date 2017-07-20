@@ -7,8 +7,8 @@ import org.aogde.pixelgame.pack.CorePack
   */
 object Startup extends App {
 
-  val game = new PixelGame
-  PixelGame.instance = game //static game instance for basic comforts
+  val game = new Voxelized2D
+  Voxelized2D.instance = game //static game instance for basic comforts
 
   game.registry.addPack(new CorePack) //adding core game pack
 

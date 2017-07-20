@@ -10,7 +10,7 @@ import scala.collection.mutable
 /**
   * Created by russoul on 16.07.2017.
   */
-class GameKeyCallback(private val game: PixelGame) extends GLFWKeyCallbackI {
+class GameKeyCallback(private val game: Voxelized2D) extends GLFWKeyCallbackI {
 
   val callbacks = new Arr[GLFWKeyCallbackI]()
 
