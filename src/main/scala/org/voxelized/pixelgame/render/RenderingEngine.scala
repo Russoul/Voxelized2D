@@ -17,6 +17,7 @@ import org.lwjgl.opengl.GL30._
 import russoul.lib.common.Implicits._
 import russoul.lib.common._
 import RenderingEngine._
+import org.voxelized.pixelgame.render.RenderingEngine.RenderDataProvider.{ApplyPostRenderState, ApplyPreRenderState, ProvideShaderData}
 
 import scala.collection.{TraversableLike, mutable}
 
@@ -95,8 +96,8 @@ class RenderingEngine(private val game: Voxelized2D) {
       //those things always must contain checked and working info,
       //so no extra checking is required while performing actual drawing
       //TODO implement sorting renderers by shader as switching program(shader) is an expensive operation
-      val lifetimeOneDrawRenderers = new mutable.HashMap[RenderID, (RendererVertFrag,ShaderDataProvider)]
-      val lifetimeManualRenderers = new mutable.HashMap[RenderID, (RendererVertFrag,ShaderDataProvider)]
+      val lifetimeOneDrawRenderers = new mutable.HashMap[RenderID, (RendererVertFrag,RenderDataProvider)]
+      val lifetimeManualRenderers = new mutable.HashMap[RenderID, (RendererVertFrag,RenderDataProvider)]
 
       def draw(windowInfo: WindowInfo): Unit ={
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT) // clear the framebuffer
@@ -118,11 +119,15 @@ class RenderingEngine(private val game: Voxelized2D) {
           val shader = defaultShaders(shaderName)
           shader.enable()
 
-          renderInfo._2.provide(shader,ic)
+          if(renderInfo._2.applyShaderData.nonEmpty) renderInfo._2.applyShaderData.get.apply(shader,ic)
+          if(renderInfo._2.applyPreRenderState.nonEmpty) renderInfo._2.applyPreRenderState.get.apply()
 
           render.construct()
           render.draw()
           render.deconstruct()
+
+          if(renderInfo._2.applyPostRenderState.nonEmpty) renderInfo._2.applyPostRenderState.get.apply()
+
           shader.disable()
         }
         lifetimeOneDrawRenderers.clear()
@@ -133,12 +138,15 @@ class RenderingEngine(private val game: Voxelized2D) {
           val shader = defaultShaders(shaderName)
           shader.enable()
 
-          renderInfo._2.provide(shader, ic)
+          if(renderInfo._2.applyShaderData.nonEmpty) renderInfo._2.applyShaderData.get.apply(shader,ic)
+          if(renderInfo._2.applyPreRenderState.nonEmpty) renderInfo._2.applyPreRenderState.get.apply()
 
           render.construct()
           render.draw()
           render.deconstruct()
           shader.disable()
+
+          if(renderInfo._2.applyPostRenderState.nonEmpty) renderInfo._2.applyPostRenderState.get.apply()
         }
       }
     }
@@ -162,21 +170,35 @@ class RenderingEngine(private val game: Voxelized2D) {
       * @param lifetime how fast the data will be deleted
       * @param transformation default transformation for shader
       * @param renderer
-      * @param shaderDataProvider extra data for shader to be set by System renderer before drawing
+      * @param dataProvider extra data for shader and state instructions for OpenGL
       * @tparam Life
       * @tparam Trans
       * @return
       */
-    def push[Life <: RenderLifetime, Trans <: RenderTransformation](lifetime: Life, transformation: Trans, renderer: RendererVertFrag, shaderDataProvider: Option[ShaderDataProvider] = None): RenderID ={
+    def push[Life <: RenderLifetime, Trans <: RenderTransformation](lifetime: Life, transformation: Trans, renderer: RendererVertFrag, dataProvider: Option[RenderDataProvider] = None): RenderID ={
 
       if(!System.defaultShaders.contains(renderer.getShaderName())) throw new System.NoSuchShaderException(renderer.getShaderName())
 
       lifetime match{
         case LifetimeOneDraw | LifetimeManual =>
 
+          var applyPreRenderState  : Option[ApplyPreRenderState] = None
+          var applyPostRenderState : Option[ApplyPostRenderState] = None
+
           //TODO deal with textures + extra values to be passed to the rendering pipeline
-          val providedByUser : (Shader,WindowInfoConst) => Shader = if(shaderDataProvider.nonEmpty) shaderDataProvider.get.provide else (x : Shader, i: WindowInfoConst) => x
-          var combinedProvider : ShaderDataProvider = null
+          val providedByUser : ProvideShaderData = dataProvider match{
+            case Some(provider) =>
+
+              applyPreRenderState = provider.applyPreRenderState
+              applyPostRenderState = provider.applyPostRenderState
+
+              provider.applyShaderData match{
+                case Some(applicable) => applicable
+                case None => RenderDataProvider.defaultShaderDataProvider.get
+              }
+            case None => RenderDataProvider.defaultShaderDataProvider.get
+          }
+          var combinedProvider : ProvideShaderData = null
 
           transformation match{
             case TransformationUI =>
@@ -201,9 +223,12 @@ class RenderingEngine(private val game: Voxelized2D) {
           val ret = new RenderID(id)
           System.Render.curRenderID += 1
 
+          val newProvider = new RenderDataProvider(Some(combinedProvider), applyPreRenderState, applyPostRenderState)
+
+
           lifetime match{
-            case LifetimeOneDraw => System.Render.lifetimeOneDrawRenderers += (ret -> (renderer -> combinedProvider))
-            case LifetimeManual => System.Render.lifetimeManualRenderers += (ret -> (renderer -> combinedProvider))
+            case LifetimeOneDraw => System.Render.lifetimeOneDrawRenderers += (ret -> (renderer -> newProvider))
+            case LifetimeManual => System.Render.lifetimeManualRenderers += (ret -> (renderer -> newProvider))
           }
 
 
@@ -218,7 +243,15 @@ class RenderingEngine(private val game: Voxelized2D) {
 }
 
 object RenderingEngine{
-  trait ShaderDataProvider{
-    def provide(shader: Shader, windowInfo: WindowInfoConst) : Shader //called each time the shader is reset
+  import RenderDataProvider._
+  class RenderDataProvider(val applyShaderData: Option[ProvideShaderData] = defaultShaderDataProvider, val applyPreRenderState : Option[ApplyPreRenderState] = None, val applyPostRenderState: Option[ApplyPostRenderState] = None){
+  }
+  object RenderDataProvider{
+    type ProvideShaderData = (Shader, WindowInfoConst) => Shader //this will be called on the shader with name specified by renderer
+    type ApplyPreRenderState = () => Unit //this will be called before any rendering occurs, used to set state to OpenGL (ex: glEnable(GL_CULL_FACE))
+    type ApplyPostRenderState = () => Unit //this will be called after all the rendering occurs, used to set state to OpenGL (ex: glDisable(GL_CULL_FACE))
+
+
+    final val defaultShaderDataProvider : Option[ProvideShaderData] = Some( (shader, _) => shader ) //apply nothing to the shader, give the reference to it back
   }
 }

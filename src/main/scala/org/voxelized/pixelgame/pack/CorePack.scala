@@ -19,7 +19,8 @@ import ColorUtils._
 import russoul.lib.common.math.algebra.Vec
 import russoul.lib.common.math.geometry.simple.Square2Over
 import Nat._
-import org.voxelized.pixelgame.render.RenderingEngine.ShaderDataProvider
+import org.lwjgl.opengl.GL11
+import org.voxelized.pixelgame.render.RenderingEngine.RenderDataProvider
 import russoul.lib.common.math.CollisionEngineF
 
 import scala.reflect.ClassTag
@@ -54,7 +55,7 @@ class CorePack extends IPack {
 
 
     if(glfwGetKey(win.id, GLFW_KEY_TAB) == GLFW_PRESS ||glfwGetKey(win.id, GLFW_KEY_TAB) == GLFW_REPEAT){
-      render.User.push(LifetimeOneDraw, TransformationNone, triangleRenderer, trans)
+      render.User.push(LifetimeOneDraw, TransformationNone, triangleRenderer, renderData)
     }
 
     val dt = timer.getDeltaSec(TIMER_KEY_INPUT).toFloat //TODO what if the game pauses ?
@@ -283,7 +284,7 @@ class CorePack extends IPack {
 
   val extForNormal = 1F / 100F
 
-  def makeVertex(vg: VoxelGrid2[Float], x: Int, y: Int, shape: FShape2[Float], accuracy: Int) : Float2 = {
+  def makeVertex(vg: VoxelGrid2[Float], tr: Arr[Triangle2F], x: Int, y: Int, shape: FShape2[Float], accuracy: Int) : Float2 = {
     val p0 = vg.get(x, y)
     val p1 = vg.get(x + 1, y)
     val p2 = vg.get(x, y + 1)
@@ -305,48 +306,96 @@ class CorePack extends IPack {
     if(sit > 0){
       val tangents = new Arr[Line2F]()
 
+      val intersections = new Arr[Float2]()
+      val vertices = new Arr[Float2]()
+
       var vert1 = nil[Float2]
       var vert2 = nil[Float2]
 
       if( (sit & 1) > 0){
+
         val ip = sampleIntersectionBrute(Line2F(v0,v1), accuracy, shape)
+        val full = if(p0 <= 0 && (v0 - ip).squaredLength() > 0) v0 else v1
         circleRenderer.add(RegularConvexPolygon2(ip, 0.1F,Nat._16), 0F, Blue)
         val dir = sampleTangent(Square2F(ip, extForNormal), accuracy, shape)
         val line = Line2F(ip - dir / extForNormal, ip + dir / extForNormal)
         tangents += line
+
+        intersections += ip
+        vertices += full
+      }else{
+        val negative = p0 < 0
+        if(negative){
+          intersections += v0
+          vertices += v1
+        }
       }
       if((sit & 2) > 0){
 
+
+
         val ip = sampleIntersectionBrute(Line2F(v1,v3), accuracy, shape)
+        val full = if(p1 <= 0 && (v1 - ip).squaredLength() > 0) v1 else v3
         circleRenderer.add(RegularConvexPolygon2(ip, 0.1F,Nat._16), 0F, Blue)
         val dir = sampleTangent(Square2F(ip, extForNormal), accuracy, shape)
         val line = Line2F(ip - dir / extForNormal, ip + dir / extForNormal)
         tangents += line
 
+        intersections += ip
+        vertices += full
+      }else{
+        val negative = p1 < 0
+        if(negative){
+          intersections += v1
+          vertices += v3
+        }
       }
       if((sit & 4) > 0){
 
+
         val ip = sampleIntersectionBrute(Line2F(v3,v2), accuracy, shape)
+        val full = if(p3 <= 0 && (v3 - ip).squaredLength() > 0) v3 else v2
         circleRenderer.add(RegularConvexPolygon2(ip, 0.1F,Nat._16), 0F, Blue)
         val dir = sampleTangent(Square2F(ip, extForNormal), accuracy, shape)
         val line = Line2F(ip - dir / extForNormal, ip + dir / extForNormal)
         tangents += line
 
+        intersections += ip
+        vertices += full
+
+      }else{
+        val negative = p3 < 0
+        if(negative){
+          intersections += v3
+          vertices += v2
+        }
       }
       if((sit & 8) > 0){
         val ip = sampleIntersectionBrute(Line2F(v2,v0), accuracy, shape)
+        val full = if(p2 <= 0 && (v2 - ip).squaredLength() > 0) v2 else v0
         circleRenderer.add(RegularConvexPolygon2(ip, 0.1F,Nat._16), 0F, Blue)
         val dir = sampleTangent(Square2F(ip, extForNormal), accuracy, shape)
         val line = Line2F(ip - dir / extForNormal, ip + dir / extForNormal)
         tangents += line
+
+        intersections += ip
+        vertices += full
+      }else{
+        val negative = p2 < 0
+        if(negative){
+          intersections += v2
+          vertices += v0
+        }
       }
 
-      //tangents.foreach(t => {linesRenderer.add(t, 0.5F, Magenta);})
+      tangents.foreach(t => {linesRenderer.add(t, 0.5F, Magenta);})
 
       //val interpolatedVertex = vertices.toArray.foldRight(Float2(0,0)){_ + _} / vertices.size
       val interpolatedVertex = sampleQEFBrute(vg.square2(x,y), accuracy, tangents)
 
-
+      for(i <- 0 until intersections.size){
+        tr += Triangle2F(interpolatedVertex, intersections(i), vertices(i))//generating triangles
+      }
 
       vg.vertices(y * vg.sizeX + x) = interpolatedVertex
 
@@ -383,23 +432,24 @@ class CorePack extends IPack {
 
         if(sit > 0){
 
-          val interpolatedVertex = makeVertex(vg, x,y, shape, accuracy)
+          val interpolatedVertex = makeVertex(vg, res2, x,y, shape, accuracy)
 
           var vert1 = nil[Float2]
           var vert2 = nil[Float2]
 
           if( (sit & 1) > 0){
+
           }
           if((sit & 2) > 0){
 
             if(x + 1 < vg.sizeX) {
-              vert1 = makeVertex(vg, x + 1, y, shape, accuracy)
+              vert1 = makeVertex(vg, res2, x + 1, y, shape, accuracy)
             }
           }
           if((sit & 4) > 0){
 
             if(y + 1 < vg.sizeY) {
-              vert2 = makeVertex(vg, x, y + 1, shape, accuracy)
+              vert2 = makeVertex(vg, res2, x, y + 1, shape, accuracy)
             }
 
           }
@@ -417,11 +467,16 @@ class CorePack extends IPack {
           if(vert1 != null) res1 += Line2F(interpolatedVertex, vert1)
           if(vert2 != null) res1 += Line2F(interpolatedVertex, vert2)
         }else{
-          val tr1 = Triangle2F(v0,v1,v3)
-          val tr2 = Triangle2F(v0,v3,v2)
 
-          res2 += tr1
-          res2 += tr2
+          val negative = p0 < 0
+
+          if(negative){
+            val tr1 = Triangle2F(v0,v1,v3)
+            val tr2 = Triangle2F(v0,v3,v2)
+
+            res2 += tr1
+            res2 += tr2
+          }
         }
       }
     }
@@ -445,16 +500,24 @@ class CorePack extends IPack {
   var renderer: RenderingEngine = _
 
 
-  val trans = Some(new ShaderDataProvider {
-    override def provide(shader: Shader, windowInfo: WindowInfoConst): Shader = {
-      shader.setMat4("V", Mat4F.translation(-Float3(camWorldPos, 0)), transpose = true)
-      //shader.setMat4("P", Mat4F.ortho(16, 16, 16, 16, -16, 16))
-      shader.setMat4("P", Mat4F.ortho(0, 16, 0, 16, -1, 1))
-      //println("")
+  def shaderData(shader: Shader, windowInfo: WindowInfoConst): Shader = {
+    shader.setMat4("V", Mat4F.translation(-Float3(camWorldPos, 0)), transpose = true)
+    //shader.setMat4("P", Mat4F.ortho(16, 16, 16, 16, -16, 16))
+    shader.setMat4("P", Mat4F.ortho(0, 16, 0, 16, -1, 1))
+    //println("")
 
-      shader
-    }
-  })
+    shader
+  }
+
+  def preRenderState() : Unit = {
+    GL11.glPushAttrib(GL11.GL_ENABLE_BIT)
+    GL11.glDisable(GL11.GL_CULL_FACE)
+    GL11.glPopAttrib()
+  }
+  def postRenderState() : Unit = {
+  }
+
+  val renderData = Some(new RenderDataProvider(Some(shaderData), Some(preRenderState), Some(postRenderState)))
 
   override def init(registry: GameRegistry): Unit = {
     this.registry = registry
@@ -466,7 +529,7 @@ class CorePack extends IPack {
 
     val circle1 = FCircle(Float2(4,8), 2F)
     val circle2 = FCircle(Float2(8,8), 5F)
-    val circle3 = FCircle(Float2(8,8), 3F)//TODO 1 does not work, too small
+    val circle3 = FCircle(Float2(8,8), 3.8F)//TODO 1 does not work, too small
     //val circle4 = FCircle(Float2(5,9),1F)
 
     val rec = FRectangle2(Float2(6,8), Float2(2F,2F))
@@ -492,9 +555,9 @@ class CorePack extends IPack {
     linesAndTrs._2.foreach(tr => triangleRenderer.add(tr, 0, ColorUtils.Black))
 
 
-    registry.Pack.renderer.User.push(LifetimeManual, TransformationNone, linesRenderer, trans)
-    registry.Pack.renderer.User.push(LifetimeManual, TransformationNone, gridRenderer, trans)
-    registry.Pack.renderer.User.push(LifetimeManual, TransformationNone, circleRenderer, trans)
+    registry.Pack.renderer.User.push(LifetimeManual, TransformationNone, linesRenderer, renderData)
+    registry.Pack.renderer.User.push(LifetimeManual, TransformationNone, gridRenderer, renderData)
+    registry.Pack.renderer.User.push(LifetimeManual, TransformationNone, circleRenderer, renderData)
 
 
     println("Core pack initialized")
@@ -504,5 +567,7 @@ class CorePack extends IPack {
     linesRenderer.deconstruct()
     gridRenderer.deconstruct()
     circleRenderer.deconstruct()
+
+    println("Core pack deinitialized")
   }
 }
