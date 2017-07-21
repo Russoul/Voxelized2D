@@ -124,7 +124,7 @@ class CorePack extends IPack {
 
 
   val point = Float2(0,0)
-  var grid = new VoxelGrid2[Float](1,16,16)
+  var grid = new VoxelGrid2[Float](0.5F,32,32)
 
   def fillInGrid(vg: VoxelGrid2[Float], shape: FShape2[Float]) : Unit = {
    for(y <- 0 until vg.verticesY){
@@ -388,7 +388,7 @@ class CorePack extends IPack {
         }
       }
 
-      tangents.foreach(t => {linesRenderer.add(t, 0.5F, Magenta);})
+      //tangents.foreach(t => {linesRenderer.add(t, 0.5F, Magenta);})
 
       //val interpolatedVertex = vertices.toArray.foldRight(Float2(0,0)){_ + _} / vertices.size
       val interpolatedVertex = sampleQEFBrute(vg.square2(x,y), accuracy, tangents)
@@ -493,7 +493,7 @@ class CorePack extends IPack {
   val gridRenderer = new RenderGrid3Color
 
   {
-    gridRenderer.add(8, 8, White, Mat4F.rotationDeg(Float3(1,0,0), 90) ⨯ Mat4F.translation(Float3(8,8,0)))
+    gridRenderer.add(8, 16, White, Mat4F.rotationDeg(Float3(1,0,0), 90) ⨯ Mat4F.translation(Float3(8,8,0)))
   }
 
   var registry: GameRegistry    = _
@@ -529,12 +529,13 @@ class CorePack extends IPack {
 
     val circle1 = FCircle(Float2(4,8), 2F)
     val circle2 = FCircle(Float2(8,8), 5F)
-    val circle3 = FCircle(Float2(8,8), 3.8F)//TODO 1 does not work, too small
-    //val circle4 = FCircle(Float2(5,9),1F)
+    val circle3 = FCircle(Float2(4,4), 2F)
+    val circle4 = FCircle(Float2(8,12),4F)
+    val circle5 = FCircle(Float2(8,6),1.1F)
 
-    val rec = FRectangle2(Float2(6,8), Float2(2F,2F))
+    val rec = FRectangle2(Float2(12,8), Float2(2F,2F))
 
-    val shape = (circle1 | circle2) - circle3
+    val shape = ((circle1 | circle2) | rec ) - circle3 - circle4 - circle5
 
     fillInGrid(grid, shape)
 
