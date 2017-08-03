@@ -53,6 +53,9 @@ libraryDependencies += "org.russoul" %% "uniscalalib" % "0.0.1"
 
 //...
 
+
+libraryDependencies += "org.typelevel" %% "spire" % "0.14.1" //using this just for cfor loop
+
 //-----------------------------------------------------------------------------------
 
 /*lazy val reloadGitDeps = taskKey[Unit]("wipe out data from ~/.sbt/0.13/staging/")

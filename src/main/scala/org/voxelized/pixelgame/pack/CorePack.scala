@@ -22,6 +22,7 @@ import Nat._
 import org.lwjgl.opengl.GL11
 import org.voxelized.pixelgame.render.RenderingEngine.RenderDataProvider
 import russoul.lib.common.math.CollisionEngineF
+import russoul.lib.common._
 
 import scala.reflect.ClassTag
 
@@ -122,6 +123,73 @@ class CorePack extends IPack {
 
   }
 
+
+  abstract sealed class QuadTree[T](var parent : QuadTree[T]){
+    var children : Vec4[QuadTree[T]] = null //2 3  <- indices based on location
+                                         //0 1
+  }
+
+  case class Node[T](c0 : QuadTree[T], c1 : QuadTree[T], c2 : QuadTree[T], c3 : QuadTree[T], par : QuadTree[T] = null) extends QuadTree[T](par){
+    c0.parent = this
+    c1.parent = this
+    c2.parent = this
+    c3.parent = this
+    children = Vec4 (c0, c1, c2, c3)
+
+  }
+
+
+
+
+  case class Leaf[T](var value : T, par : QuadTree[T] = null) extends QuadTree[T](par)
+
+  //T must be some collection with samples at bounding box corners (4 samples together)
+  class Empty[T](value : T, par : QuadTree[T]) extends Leaf[T](value, par) //leaf with all corners > 0
+  class Full[T](value : T, par : QuadTree[T]) extends Leaf[T](value, par) //leaf with all corners < 0
+
+  def treeExample(): Unit = {
+    val tree = Node(
+      Leaf(1),
+      Leaf(2),
+      Leaf(3),
+        Node(
+        Leaf(4),
+        Leaf(5),
+        Leaf(6),
+        Leaf(7)
+      )
+    )
+
+    printTree(tree)
+
+  }
+
+  def printTree[T](tree : QuadTree[T], level : Int = 0) : Unit = {
+
+    val STR = "   "
+    val RENDER = "-->"
+    def spaces(level : Int) : String = {
+      import spire.syntax.cfor._
+      val builder = new StringBuilder
+
+      cfor(0)(_ < level, _ + 1) { _ =>
+        builder ++= STR
+      }
+
+      builder.result()
+    }
+
+    val str = spaces(level) + RENDER
+    str |> print
+
+    tree match{
+      case node : Node[T] =>
+        "\n" |> print
+        for(child <- node.children) printTree(child, level + 1)
+      case leaf : Leaf[T] =>
+        (" " + leaf.value) |> println
+    }
+  }
 
   val point = Float2(0,0)
   var grid = new VoxelGrid2[Float](0.5F,32,32)
@@ -519,7 +587,8 @@ class CorePack extends IPack {
 
   val renderData = Some(new RenderDataProvider(Some(shaderData), Some(preRenderState), Some(postRenderState)))
 
-  override def init(registry: GameRegistry): Unit = {
+
+  def work(registry: GameRegistry): Unit ={
     this.registry = registry
     this.renderer = registry.Pack.renderer
 
@@ -533,9 +602,9 @@ class CorePack extends IPack {
     val circle4 = FCircle(Float2(8,12),4F)
     val circle5 = FCircle(Float2(8,6),1.1F)
 
-    val rec = FRectangle2(Float2(12,8), Float2(2F,2F))
+    val rec = FRectangle2(Float2(8,12), Float2(1F,3F))
 
-    val shape = ((circle1 | circle2) | rec ) - circle3 - circle4 - circle5
+    val shape = (((circle1 | circle2) | rec ) - circle3 - circle4 - circle5) | rec
 
     fillInGrid(grid, shape)
 
@@ -562,6 +631,11 @@ class CorePack extends IPack {
 
 
     println("Core pack initialized")
+  }
+
+  override def init(registry: GameRegistry): Unit = {
+    //work(registry)
+    treeExample()
   }
 
   override def deinit(registry: GameRegistry): Unit = {
