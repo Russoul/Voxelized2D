@@ -164,7 +164,7 @@ class RenderingEngine(private val game: Voxelized2D) {
 
 
 
-    //multithread-unsafe
+    //multithread-unsafe TODO
     /**
       *
       * @param lifetime how fast the data will be deleted

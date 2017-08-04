@@ -50,11 +50,11 @@ libraryDependencies += lwjglOrganization % "lwjgl-yoga"     % lwjglVersion
 
 //UniScalaLibrary
 libraryDependencies += "org.russoul" %% "uniscalalib" % "0.0.1"
-
+libraryDependencies in Scope.GlobalScope += "org.typelevel" %% "spire" % "0.14.1"
 //...
 
 
-libraryDependencies += "org.typelevel" %% "spire" % "0.14.1" //using this just for cfor loop
+
 
 //-----------------------------------------------------------------------------------
 
