@@ -91,8 +91,8 @@ class CorePack extends IPack {
 
 
 
-  def constSign(a: Float, b: Float) = if(a > 0) b >= 0 else if(a < 0) b < 0 else b >= 0
-
+  //def constSign(a: Float, b: Float) = if(a > 0) b >= 0 else if(a < 0) b < 0 else b >= 0
+  def constSign(a: Float, b: Float): Boolean = if(a > 0) b > 0 else b <= 0 //TODO ??
 
   //definition of the QEF, used to find feature vertices (helps to preserve features of the surface)
   def calcQEF(point: Float2, lines: Arr[Line2F]): Float = {
@@ -214,7 +214,65 @@ class CorePack extends IPack {
     ret
   }
 
-  def makeVertex(vg: VoxelGrid2[Float], tr: Arr[Triangle2F], x: Int, y: Int, f : Float2 => Float, accuracy: Int, features : Array[Float2]) : Float2 = {
+  def makeTriangles(vg : VoxelGrid2[Float], features : Array[Float2], intersections : Array[Arr[Float2]], extra : Array[Arr[Float2]]) : Arr[Triangle2F] = {
+
+    val ret = new Arr[Triangle2F]()
+
+    for(y <- 0 until vg.sizeY) {
+      for (x <- 0 until vg.sizeX) {
+
+        val t = y * vg.sizeX + x
+        val curIntersections = intersections(t)
+        val curExtras = extra(t)
+
+
+        // for each block of the grid
+        val p0 = vg.get(x, y)
+        val p1 = vg.get(x + 1, y)
+        val p2 = vg.get(x, y + 1)
+        val p3 = vg.get(x + 1, y + 1) //we use get here instead of f(..) because get is cached and the same sample points are used more then once throughout the algorithm
+
+        val v0 = vg.getPoint(x, y)
+        val v1 = vg.getPoint(x + 1, y)
+        val v2 = vg.getPoint(x, y + 1)
+        val v3 = vg.getPoint(x + 1, y + 1)
+
+        var sit = 0
+
+        if (!constSign(p0, p1)) sit |= 1 //sample its corner points using (samples are already stored in the grid)
+        if (!constSign(p1, p3)) sit |= 2
+        if (!constSign(p3, p2)) sit |= 4
+        if (!constSign(p2, p0)) sit |= 8
+
+        if(sit == 0){ //fully inside or fully outside
+          val negative = p0 < 0
+
+          if(negative){ //render if it is inside
+            val tr1 = Triangle2F(v0,v1,v3)
+            val tr2 = Triangle2F(v0,v3,v2)
+
+            ret += tr1
+            ret += tr2
+          }
+        }else{ //contains surface
+          if(curIntersections != null && features(t) != null){
+            for(i <- 0 until curIntersections.size){
+              ret += Triangle2F(features(t), curIntersections(i), curExtras(i))//generating triangles
+            }
+          }
+        }
+
+      }
+    }
+
+
+
+    ret
+  }
+
+  def makeVertex(vg: VoxelGrid2[Float], tr: Arr[Triangle2F], x: Int, y: Int, f : Float2 => Float, accuracy: Int, features : Array[Float2], outIntersections : Arr[Float2], outExtra : Arr[Float2]) : Float2 = {
+    val epsilon = vg.a/accuracy
+
     val p0 = vg.get(x, y)
     val p1 = vg.get(x + 1, y)
     val p2 = vg.get(x, y + 1)
@@ -238,8 +296,6 @@ class CorePack extends IPack {
     if(sit > 0){ //if this failes we dont calculate main features because the block is completely inside or outside
       val tangents = new Arr[Line2F]()
 
-      val intersections = new Arr[Float2]()
-      val vertices = new Arr[Float2]()
 
       var vert1 = nil[Float2]
       var vert2 = nil[Float2]
@@ -248,19 +304,19 @@ class CorePack extends IPack {
       if( (sit & 1) > 0){
 
         val ip = sampleIntersectionBrute(Line2F(v0,v1), accuracy, f) //find point of intersection of the surface with this edge with given precision (sampling algorith is used)
-        val full = if(p0 <= 0 && (v0 - ip).squaredLength() > 0) v0 else v1 //choose the end point of the edge to draw a triangle with
+        val full = if(p0 <= 0) v0 else v1 //choose the end point of the edge to draw a triangle with
         circleRenderer.add(RegularConvexPolygon2(ip, 0.1F,Nat._16), 0F, Blue) //debug render
         val dir = sampleTangent(Square2F(ip, extForNormal), accuracy, f) //find tangent line to the surface at found point of intersection
         val line = Line2F(ip - dir / extForNormal, ip + dir / extForNormal)//^
         tangents += line //put it to the list of all found tangents
 
-        intersections += ip //add intersection point to the list of all intersection points
-        vertices += full //for triangle drawing
+        outIntersections += ip //add intersection point to the list of all intersection points
+        outExtra += full //for triangle drawing
       }else{
         val negative = p0 < 0
         if(negative){ //if the edge is inside the surface then render a triangle using end points and resulting feature vertex
-          intersections += v0
-          vertices += v1
+          outIntersections += v0
+          outExtra += v1
         }
       }
       if((sit & 2) > 0){ //same for the other edges
@@ -268,56 +324,56 @@ class CorePack extends IPack {
 
 
         val ip = sampleIntersectionBrute(Line2F(v1,v3), accuracy, f)
-        val full = if(p1 <= 0 && (v1 - ip).squaredLength() > 0) v1 else v3
+        val full = if(p1 <= 0) v1 else v3
         circleRenderer.add(RegularConvexPolygon2(ip, 0.1F,Nat._16), 0F, Blue)
         val dir = sampleTangent(Square2F(ip, extForNormal), accuracy, f)
         val line = Line2F(ip - dir / extForNormal, ip + dir / extForNormal)
         tangents += line
 
-        intersections += ip
-        vertices += full
+        outIntersections += ip
+        outExtra += full
       }else{
         val negative = p1 < 0
         if(negative){
-          intersections += v1
-          vertices += v3
+          outIntersections += v1
+          outExtra += v3
         }
       }
       if((sit & 4) > 0){
-
-
         val ip = sampleIntersectionBrute(Line2F(v3,v2), accuracy, f)
-        val full = if(p3 <= 0 && (v3 - ip).squaredLength() > 0) v3 else v2
+
+
+        val full = if(p3 <= 0) v3 else v2
         circleRenderer.add(RegularConvexPolygon2(ip, 0.1F,Nat._16), 0F, Blue)
         val dir = sampleTangent(Square2F(ip, extForNormal), accuracy, f)
         val line = Line2F(ip - dir / extForNormal, ip + dir / extForNormal)
         tangents += line
 
-        intersections += ip
-        vertices += full
+        outIntersections += ip
+        outExtra += full
 
       }else{
         val negative = p3 < 0
         if(negative){
-          intersections += v3
-          vertices += v2
+          outIntersections += v3
+          outExtra += v2
         }
       }
       if((sit & 8) > 0){
         val ip = sampleIntersectionBrute(Line2F(v2,v0), accuracy, f)
-        val full = if(p2 <= 0 && (v2 - ip).squaredLength() > 0) v2 else v0
+        val full = if(p2 <= 0) v2 else v0
         circleRenderer.add(RegularConvexPolygon2(ip, 0.1F,Nat._16), 0F, Blue)
         val dir = sampleTangent(Square2F(ip, extForNormal), accuracy, f)
         val line = Line2F(ip - dir / extForNormal, ip + dir / extForNormal)
         tangents += line
 
-        intersections += ip
-        vertices += full
+        outIntersections += ip
+        outExtra += full
       }else{
         val negative = p2 < 0
         if(negative){
-          intersections += v2
-          vertices += v0
+          outIntersections += v2
+          outExtra += v0
         }
       }
 
@@ -330,11 +386,12 @@ class CorePack extends IPack {
       //for clarity : we could actually use linear interpolation to find the feature vertex and it would work, but the features are not preserved in this case
       val interpolatedVertex = sampleQEFBrute(vg.square2(x,y), accuracy, tangents) //feature vertex
 
-      for(i <- 0 until intersections.size){
-        tr += Triangle2F(interpolatedVertex, intersections(i), vertices(i))//generating triangles
+      for(i <- 0 until outIntersections.size){
+        tr += Triangle2F(interpolatedVertex, outIntersections(i), outExtra(i))//generating triangles
       }
 
       features(y * vg.sizeX + x) = interpolatedVertex
+
 
       return interpolatedVertex
     }
@@ -344,7 +401,7 @@ class CorePack extends IPack {
 
   
   
-  case class ContourData(lines : Arr[Line2F], triangles : Arr[Triangle2F], features : Array[Float2])
+  case class ContourData(lines : Arr[Line2F], triangles : Arr[Triangle2F], features : Array[Float2], intersections: Array[Arr[Float2]], extras : Array[Arr[Float2]])
 
   /**
     *
@@ -358,11 +415,23 @@ class CorePack extends IPack {
     val res2 = new Arr[Triangle2F]()
 
     val features = new Array[Float2](vg.sizeX * vg.sizeY)//generated feature vertices
+    val intersections, extra  = new Array[Arr[Float2]](vg.sizeX * vg.sizeY)
 
     @inline def cachedMake(x : Int, y : Int): Float2 ={
-      val possible = features(y * vg.sizeX + x)
+      val t = y * vg.sizeX + x
+      val possible = features(t)
       if(possible == null) //features vertices are cached in an array for future access
-        makeVertex(vg, res2, x,y, f, accuracy, features) //find feature vertex at current block
+      {
+        intersections(t) = new Arr[Float2](4) //TODO extra mem usage here, REWORK
+        extra(t) = new Arr[Float2](4)
+        val ret = makeVertex(vg, res2, x,y, f, accuracy, features, intersections(t), extra(t)) //find feature vertex at current block
+        if(ret == null){ //empty blocks have null feature,intersections and extras
+          intersections(t) == null
+          extra(t) = null
+        }
+
+        ret
+      }
       else
         possible
     }
@@ -430,7 +499,7 @@ class CorePack extends IPack {
       }
     }
 
-    ContourData(res1, res2, features)
+    ContourData(res1, res2, features, intersections, extra)
 
   }
 
@@ -487,15 +556,15 @@ class CorePack extends IPack {
   val gridRenderer = new RenderGrid3Color
 
   {
-    gridRenderer.add(8, 64, White, Mat4F.rotationDeg(Float3(1,0,0), 90) ⨯ Mat4F.translation(Float3(8,8,0)))
+    gridRenderer.add(8, 32, White, Mat4F.rotationDeg(Float3(1,0,0), 90) ⨯ Mat4F.translation(Float3(8,8,0)))
   }
 
   var registry: GameRegistry    = _
   var renderer: RenderingEngine = _
 
-  
+
   var contourData : ContourData = _
-  
+
 
   def shaderData(shader: Shader, windowInfo: WindowInfoConst): Shader = {
     val aspect = windowInfo.width / windowInfo.height
@@ -522,91 +591,172 @@ class CorePack extends IPack {
   val renderData = Some(new RenderDataProvider(Some(shaderData), Some(preRenderState), Some(postRenderState)))
 
 
+  def nonEmptyBlock(vg : VoxelGrid2[Float], x : Int, y : Int) : Boolean = {
+    val p0 = vg.get(x, y)
+    val p1 = vg.get(x + 1, y)
+    val p2 = vg.get(x, y + 1)
+    val p3 = vg.get(x + 1, y + 1) //we use get here instead of f(..) because get is cached and the same sample points are used more then once throughout the algorithm
 
-  def mouseCallback(window : Long, button : Int, action : Int, mods : Int) : Unit = {
-    if(action == GLFW_PRESS){
+    p0 <= 0 || p1 <= 0 || p2 <= 0 || p3 <= 0
+  }
 
-      val win = registry.Pack.windowInfoConst()
+  def emptyBlock(vg : VoxelGrid2[Float], x : Int, y : Int) = !nonEmptyBlock(vg,x,y)
 
-      auto(MemoryStack.stackPush()){ stack =>
-        val x = stack.mallocDouble(1)
-        val iy = stack.mallocDouble(1)
+  def fullBlock(vg : VoxelGrid2[Float], x : Int, y : Int) : Boolean = {
+    val p0 = vg.get(x, y)
+    val p1 = vg.get(x + 1, y)
+    val p2 = vg.get(x, y + 1)
+    val p3 = vg.get(x + 1, y + 1) //we use get here instead of f(..) because get is cached and the same sample points are used more then once throughout the algorithm
 
-        glfwGetCursorPos(win.id, x, iy)
+    p0 <= 0 && p1 <= 0 && p2 <= 0 && p3 <= 0
+  }
 
-        val rx = x.get()
-        val ry = win.height - iy.get()
+  def mouseCallback(window : Long, button : Int, action : Int, mods : Int) : Unit = { //TODO exceptions are suppressed ??
+    button match {
+      case GLFW_MOUSE_BUTTON_2 =>
+        val win = registry.Pack.windowInfoConst()
 
-        val aspect = win.width / win.height
+        auto(MemoryStack.stackPush()) { stack =>
+          val x = stack.mallocDouble(1)
+          val iy = stack.mallocDouble(1)
 
-        val height = 16
-        val width = height * aspect
+          glfwGetCursorPos(win.id, x, iy)
+
+          val rx = x.get()
+          val ry = win.height - iy.get()
+
+          val aspect = win.width / win.height
+
+          val height = 16
+          val width = height * aspect
+
+          val a = BLOCK_SIZE
+
+          val px = rx / win.width * width / a toInt
+          val py = ry / win.height * height / a toInt
+
+          if(px < grid.sizeX && py < grid.sizeY && px >= 0 && py >= 0){
+            println(s"isEmpty = ${emptyBlock(grid, px, py)}")
+          }
+        }
+      case GLFW_MOUSE_BUTTON_1 =>
+        if(action == GLFW_PRESS){
+
+          val win = registry.Pack.windowInfoConst()
+
+          auto(MemoryStack.stackPush()){ stack =>
+            val x = stack.mallocDouble(1)
+            val iy = stack.mallocDouble(1)
+
+            glfwGetCursorPos(win.id, x, iy)
+
+            val rx = x.get()
+            val ry = win.height - iy.get()
+
+            val aspect = win.width / win.height
+
+            val height = 16
+            val width = height * aspect
 
 
-        val px = rx / win.width * width   toFloat
-        val py = ry / win.height * height toFloat
+            val px = rx / win.width * width   toFloat
+            val py = ry / win.height * height toFloat
 
-        val center = Float2(px,py) + camWorldPos
+            val center = Float2(px,py) + camWorldPos
+
+            println(s"gonna spawn a circle at ${center}")
+
+            val rad = 1.5F
+            val circle = FCircle(center, rad)
+            val circleGeo = CircleF(center, rad)
+            val gridRec = gridRectangle2(point, grid)
 
 
 
-        val rad = 2F
-        val circle = FCircle(center, rad)
-        val circleGeo = CircleF(center, rad)
-        val gridRec = gridRectangle2(point, grid)
+            //circle inside chunk bounds
+            val inside = CollisionEngineF.checkCircleInsideRectangle2(circleGeo, gridRec)
+            if(!inside){
+              println("circle not inside bounds !")
+            }else{
+              val newGrid = new VoxelGrid2[Float](BLOCK_SIZE, CHUNK_SIZE, CHUNK_SIZE)
+              fillInGrid(newGrid, circle.density) //TODO we actually don't need this
+              val circleData = makeContour(newGrid, circle.density , 32)
+
+              //process only those blocks that are common to both volume(density <= 0) we gonna add and the old volume
+              val blocks = gridIntersections(BLOCK_SIZE, circleGeo)
+
+              println(s"changed ${blocks.size} blocks")
+              for(coord <- blocks){
+                val x = coord.x
+                val y = coord.y
+
+
+                val t = y * CHUNK_SIZE + x
+
+                val feature = contourData.features(t) //may be null
+                if(feature != null && CollisionEngineF.checkPoint2Circle(feature, circleGeo)){
+                  contourData.features(t) = null
+                }
+
+                val dataF = circleData.features(t)
+                if(dataF != null){
+                  contourData.features(t) = dataF
+                }
+
+                if(emptyBlock(grid, x, y)){
+                  contourData.intersections(t) = circleData.intersections(t)
+                  contourData.extras(t) = circleData.extras(t)
+                }else if(!fullBlock(grid, x, y)){
+                  if(fullBlock(newGrid, x, y)){
+                    contourData.intersections(t) = circleData.intersections(t)
+                    contourData.extras(t) = circleData.extras(t)
+                  }else if (nonEmptyBlock(newGrid, x, y)){ //both are partial
+                    contourData.intersections(t) ++= circleData.intersections(t)
+                    contourData.extras(t) ++= circleData.extras(t)
+                  }
+                }
 
 
 
-        //circle inside chunk bounds
-        val inside = CollisionEngineF.checkCircleInsideRectangle2(circleGeo, gridRec)
-        if(!inside){
-          println("circle not inside bounds !")
-        }else{
-          val newGrid = new VoxelGrid2[Float](BLOCK_SIZE, CHUNK_SIZE, CHUNK_SIZE)
-          fillInGrid(newGrid, circle.density) //TODO we actually dont need this
-          val data = makeContour(newGrid, circle.density , 16)
-
-          //process only those blocks that are common to both volume(density <= 0) we gonna add and the old volume
-          //for now we process all old blocks
-
-          for(y <- 0 until grid.sizeY){
-            for(x <- 0 until grid.sizeX){
-
-              val g0 = newGrid.get(x,y)
-              val g1 = newGrid.get(x + 1,y)
-              val g2 = newGrid.get(x,y + 1)
-              val g3 = newGrid.get(x + 1,y + 1)
-
-              if(g0 <= 0) grid.set(x,y, g0)
-              if(g1 <= 0) grid.set(x + 1,y, g1)
-              if(g2 <= 0) grid.set(x,y + 1, g2)
-              if(g3 <= 0) grid.set(x + 1,y + 1, g3)
-
-              val feature = contourData.features(y * CHUNK_SIZE + x) //may be null
-              if(feature != null && CollisionEngineF.checkPoint2Circle(feature, circleGeo)){
-                contourData.features(y * CHUNK_SIZE + x) = null
               }
 
-              val dataF = data.features(y * CHUNK_SIZE + x)
-              if(dataF != null){
-                contourData.features(y * CHUNK_SIZE + x) = dataF
+
+              //change the grid at last (we use it before)
+              for(coord <- blocks){
+                val x = coord.x
+                val y = coord.y
+
+                val g0 = newGrid.get(x,y)
+                val g1 = newGrid.get(x + 1,y)
+                val g2 = newGrid.get(x,y + 1)
+                val g3 = newGrid.get(x + 1,y + 1)
+
+                grid.set(x,y, Math.min(g0, grid.get(x,y))) //operation OR
+                grid.set(x + 1,y, Math.min(g1, grid.get(x + 1,y)))
+                grid.set(x,y + 1, Math.min(g2, grid.get(x,y + 1)))
+                grid.set(x + 1,y + 1, Math.min(g3, grid.get(x + 1,y + 1)))
               }
 
+              val lines = makeLines(grid, contourData.features)
+              println(s"generated ${lines.size} lines")
+              val triangles = makeTriangles(grid, contourData.features, contourData.intersections, contourData.extras)
+              println(s"generated ${triangles.size} triangles") //TODO generated triangles only on changed blocks
+
+              contourData = contourData.copy(lines = lines, triangles = triangles)
+
+              linesRenderer.clearPools()
+              linesRenderer.deconstruct()
+              lines.foreach(line => linesRenderer.add(line, 0, Red))
+              linesRenderer.construct()
+
+              triangleRenderer.clearPools()
+              triangleRenderer.deconstruct()
+              triangles.foreach(tr => triangleRenderer.add(tr, 0, Black))
+              triangleRenderer.construct()
 
             }
           }
-
-          val lines = makeLines(grid, contourData.features)
-          println(s"generated ${lines.size} lines")
-
-          contourData = contourData.copy(lines = lines)
-          linesRenderer.clearPools()
-          linesRenderer.deconstruct()
-          lines.foreach(line => linesRenderer.add(line, 0, Red))
-          linesRenderer.construct()
-
         }
-      }
     }
   }
 
@@ -625,9 +775,11 @@ class CorePack extends IPack {
     val circle4 = FCircle(Float2(8,12) + offset,4F)
     val circle5 = FCircle(Float2(8,6) + offset,1.1F)
 
+    val debugCircle = FCircle(Float2(2.8000002F, 11.203231F), 1.5F)
+
     val rec = FRectangle2(Float2(8,10.8F) + offset, Float2(1F,3F))
 
-    val shape = (((circle1 | circle2) | rec ) - circle3 - circle4 - circle5) | rec
+    val shape = ((((circle1 | circle2) | rec ) - circle3 - circle4 - circle5) | rec)
 
 
     val generator : Float2 => Float = shape.density
@@ -655,10 +807,15 @@ class CorePack extends IPack {
 
     contourData = data
 
+    //TODO debug
+    linesRenderer.add(Line2F(Float2(0,0), Float2(1,0)), 0, Red)
+
     triangleRenderer.construct()
     linesRenderer.construct()
     gridRenderer.construct()
     circleRenderer.construct()
+
+
 
     registry.Pack.renderer.User.push(LifetimeManual, TransformationNone, linesRenderer, renderData)
     registry.Pack.renderer.User.push(LifetimeManual, TransformationNone, gridRenderer, renderData)
