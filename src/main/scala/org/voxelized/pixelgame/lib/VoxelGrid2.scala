@@ -27,6 +27,7 @@ class VoxelGrid2[@sp(Float, Double) A : ClassTag] (val a: A, val sizeX: Int, val
     }
   }
 
+
   def get(x: Int, y: Int) : A = {
     grid(y * verticesX + x)
   }

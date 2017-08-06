@@ -61,6 +61,12 @@ trait RendererVertFragDefault extends RendererVertFrag{
     true
   }
 
+  def clearPools(): Unit ={
+    vertexPool.clear()
+    indexPool.clear()
+    vertexCount = 0 //always forgetting this :)
+  }
+
 
   override def draw(): Boolean = {
 

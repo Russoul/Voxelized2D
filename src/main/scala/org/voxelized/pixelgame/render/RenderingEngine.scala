@@ -141,9 +141,8 @@ class RenderingEngine(private val game: Voxelized2D) {
           if(renderInfo._2.applyShaderData.nonEmpty) renderInfo._2.applyShaderData.get.apply(shader,ic)
           if(renderInfo._2.applyPreRenderState.nonEmpty) renderInfo._2.applyPreRenderState.get.apply()
 
-          render.construct()
+          //manual construction and deconstruction !
           render.draw()
-          render.deconstruct()
           shader.disable()
 
           if(renderInfo._2.applyPostRenderState.nonEmpty) renderInfo._2.applyPostRenderState.get.apply()

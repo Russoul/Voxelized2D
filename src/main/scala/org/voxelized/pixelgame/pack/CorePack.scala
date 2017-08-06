@@ -20,6 +20,7 @@ import russoul.lib.common.math.algebra.Vec
 import russoul.lib.common.math.geometry.simple.Square2Over
 import Nat._
 import org.lwjgl.opengl.GL11
+import org.lwjgl.system.MemoryStack
 import org.voxelized.pixelgame.lib.VoxelGrid2
 import org.voxelized.pixelgame.render.RenderingEngine.RenderDataProvider
 import russoul.lib.common.math.CollisionEngineF
@@ -43,19 +44,22 @@ class CorePack extends IPack {
   val timer = new Timer
 
   val TIMER_KEY_INPUT = "CorePack_KeyInput"
+  
+
+  final val BLOCK_SIZE: Float = 0.25F
+  final val CHUNK_SIZE: Int = 64
 
   {
     timer.update(TIMER_KEY_INPUT)
   }
+
+
 
   def onGameUpdate(win: WindowInfoConst, render: RenderingEngine) : Unit = {
     val w = win.width
     val h = win.height
 
     val speed = 8F
-
-
-
 
     if(glfwGetKey(win.id, GLFW_KEY_TAB) == GLFW_PRESS ||glfwGetKey(win.id, GLFW_KEY_TAB) == GLFW_REPEAT){
       render.User.push(LifetimeOneDraw, TransformationNone, triangleRenderer, renderData)
@@ -75,7 +79,6 @@ class CorePack extends IPack {
     if(glfwGetKey(win.id, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(win.id, GLFW_KEY_D) == GLFW_REPEAT){
       camWorldPos += Float2(speed * dt,0)
     }
-
 
 
     timer.update(TIMER_KEY_INPUT)
@@ -179,7 +182,37 @@ class CorePack extends IPack {
     //if(shape.density(square.center + normalRaw * extForNormal) > denAtCenter) normalRaw else -normalRaw
   }
 
-  def extForNormal(blockSize : Float) = blockSize / 100F //TODO is this value correct, why this ?
+  def extForNormal(blockSize : Float): RealF = blockSize / 100F //TODO is this value correct, why this ?
+
+
+  def makeLines(vg: VoxelGrid2[Float], features : Array[Float2]) : Arr[Line2F] = {
+    val ret = new Arr[Line2F]()
+
+    for(y <- 0 until vg.sizeY - 1) {
+      for (x <- 0 until vg.sizeX - 1) {
+        val feature = features(y * vg.sizeX + x)
+        if(feature != null){
+          val p1 = vg.get(x + 1, y)
+          val p2 = vg.get(x, y + 1)
+          val p3 = vg.get(x + 1, y + 1) //we use get here instead of f(..) because get is cached and the same sample points are used more then once throughout the algorithm
+
+
+          var vert1, vert2 : Float2 = null
+
+          if(!constSign(p1,p3))
+            vert1 = features(y * vg.sizeX + (x+1))
+
+          if(!constSign(p3,p2))
+            vert2 = features((y+1) * vg.sizeX + x)
+
+          if(vert1 != null) ret += Line2F(feature, vert1)
+          if(vert2 != null) ret += Line2F(feature, vert2)
+        }
+      }
+    }
+
+    ret
+  }
 
   def makeVertex(vg: VoxelGrid2[Float], tr: Arr[Triangle2F], x: Int, y: Int, f : Float2 => Float, accuracy: Int, features : Array[Float2]) : Float2 = {
     val p0 = vg.get(x, y)
@@ -309,24 +342,26 @@ class CorePack extends IPack {
     null
   }
 
+  
+  
+  case class ContourData(lines : Arr[Line2F], triangles : Arr[Triangle2F], features : Array[Float2])
 
   /**
     *
     * @param vg
     * @param f
     * @param accuracy
-    * @return outline and triangle mesh for rendering
+    * @return outline and triangle mesh for rendering + generated features
     */
-  def makeContour(vg: VoxelGrid2[Float], f : Float2 => Float, accuracy: Int) : (Arr[Line2F], Arr[Triangle2F]) = {
+  def makeContour(vg: VoxelGrid2[Float], f : Float2 => Float, accuracy: Int) : ContourData = {
     val res1 = new Arr[Line2F]()
     val res2 = new Arr[Triangle2F]()
 
     val features = new Array[Float2](vg.sizeX * vg.sizeY)//generated feature vertices
 
-
-    @inline def cashedMake(x : Int, y : Int): Float2 ={
+    @inline def cachedMake(x : Int, y : Int): Float2 ={
       val possible = features(y * vg.sizeX + x)
-      if(possible == null) //features vertices are cashed in an array for future access
+      if(possible == null) //features vertices are cached in an array for future access
         makeVertex(vg, res2, x,y, f, accuracy, features) //find feature vertex at current block
       else
         possible
@@ -337,7 +372,7 @@ class CorePack extends IPack {
         val p0 = vg.get(x, y)
         val p1 = vg.get(x + 1, y)
         val p2 = vg.get(x, y + 1)
-        val p3 = vg.get(x + 1, y + 1)
+        val p3 = vg.get(x + 1, y + 1) //we use get here instead of f(..) because get is cached and the same sample points are used more then once throughout the algorithm
 
         val v0 = vg.getPoint(x, y)
         val v1 = vg.getPoint(x + 1, y)
@@ -354,7 +389,7 @@ class CorePack extends IPack {
 
         if(sit > 0){ //surface goes through this block
 
-          val interpolatedVertex = cashedMake(x, y)
+          val interpolatedVertex = cachedMake(x, y)
 
           var vert1 = nil[Float2]
           var vert2 = nil[Float2]
@@ -362,12 +397,12 @@ class CorePack extends IPack {
           //if( (sit & 1) > 0){}
           if((sit & 2) > 0){
             if(x + 1 < vg.sizeX) {//check if the current block is not the last one in the row
-              vert1 = cashedMake(x + 1, y) //find main feature vertex at right block, used only for lines
+              vert1 = cachedMake(x + 1, y) //find main feature vertex at right block, used only for lines
             }
           }
           if((sit & 4) > 0){
             if(y + 1 < vg.sizeY) {//check if the current block is not the last one in the column
-              vert2 = cashedMake(x, y + 1) //find main feature vertex at top block, used only for lines
+              vert2 = cachedMake(x, y + 1) //find main feature vertex at top block, used only for lines
             }
 
           }
@@ -395,13 +430,47 @@ class CorePack extends IPack {
       }
     }
 
-    (res1,res2)
+    ContourData(res1, res2, features)
 
   }
 
 
   val point = Float2(0,0)
-  var grid = new VoxelGrid2[Float](0.25F,64,64)
+  var grid = new VoxelGrid2[Float](BLOCK_SIZE,CHUNK_SIZE,CHUNK_SIZE)
+
+
+  def gridRectangle2(min : Float2, grid : VoxelGrid2[Float]): Rectangle2F = {
+    val extent = Float2(grid.a * grid.sizeX/2, grid.a * grid.sizeY/2)
+    Rectangle2F(min + extent, extent)
+  }
+
+  /**
+    *
+    * @param circle local to the grid ! (grid coordinate system start from its bound min coordinate (bottom left corner))
+    * @return (x,y) pairs of block coordinates (local) in the grid, DOES NOT CHECK GRID BOUNDS !
+    */
+  def gridIntersections(a: Float, circle : CircleF) : Arr[Int2] = {
+    val circleMinX = circle.center.x - circle.rad
+    val circleMaxX = circle.center.x + circle.rad
+
+    val circleMinY = circle.center.y - circle.rad
+    val circleMaxY = circle.center.y + circle.rad
+
+    val minx = (circleMinX / a).toInt
+    val miny = (circleMinY / a).toInt
+    val maxx = (circleMaxX / a + 1).toInt
+    val maxy = (circleMaxY / a + 1).toInt
+
+    val ret = new Arr[Int2]( (maxx-minx + 1) * (maxy - miny + 1) )
+
+    for(x <- minx to maxx){
+      for(y <- miny to maxy){
+        ret += Int2(x,y)
+      }
+    }
+
+    ret
+  }
 
   def fillInGrid(vg: VoxelGrid2[Float], f : Float2 => Float) : Unit = {
     for(y <- 0 until vg.verticesY){
@@ -424,6 +493,9 @@ class CorePack extends IPack {
   var registry: GameRegistry    = _
   var renderer: RenderingEngine = _
 
+  
+  var contourData : ContourData = _
+  
 
   def shaderData(shader: Shader, windowInfo: WindowInfoConst): Shader = {
     val aspect = windowInfo.width / windowInfo.height
@@ -450,6 +522,94 @@ class CorePack extends IPack {
   val renderData = Some(new RenderDataProvider(Some(shaderData), Some(preRenderState), Some(postRenderState)))
 
 
+
+  def mouseCallback(window : Long, button : Int, action : Int, mods : Int) : Unit = {
+    if(action == GLFW_PRESS){
+
+      val win = registry.Pack.windowInfoConst()
+
+      auto(MemoryStack.stackPush()){ stack =>
+        val x = stack.mallocDouble(1)
+        val iy = stack.mallocDouble(1)
+
+        glfwGetCursorPos(win.id, x, iy)
+
+        val rx = x.get()
+        val ry = win.height - iy.get()
+
+        val aspect = win.width / win.height
+
+        val height = 16
+        val width = height * aspect
+
+
+        val px = rx / win.width * width   toFloat
+        val py = ry / win.height * height toFloat
+
+        val center = Float2(px,py) + camWorldPos
+
+
+
+        val rad = 2F
+        val circle = FCircle(center, rad)
+        val circleGeo = CircleF(center, rad)
+        val gridRec = gridRectangle2(point, grid)
+
+
+
+        //circle inside chunk bounds
+        val inside = CollisionEngineF.checkCircleInsideRectangle2(circleGeo, gridRec)
+        if(!inside){
+          println("circle not inside bounds !")
+        }else{
+          val newGrid = new VoxelGrid2[Float](BLOCK_SIZE, CHUNK_SIZE, CHUNK_SIZE)
+          fillInGrid(newGrid, circle.density) //TODO we actually dont need this
+          val data = makeContour(newGrid, circle.density , 16)
+
+          //process only those blocks that are common to both volume(density <= 0) we gonna add and the old volume
+          //for now we process all old blocks
+
+          for(y <- 0 until grid.sizeY){
+            for(x <- 0 until grid.sizeX){
+
+              val g0 = newGrid.get(x,y)
+              val g1 = newGrid.get(x + 1,y)
+              val g2 = newGrid.get(x,y + 1)
+              val g3 = newGrid.get(x + 1,y + 1)
+
+              if(g0 <= 0) grid.set(x,y, g0)
+              if(g1 <= 0) grid.set(x + 1,y, g1)
+              if(g2 <= 0) grid.set(x,y + 1, g2)
+              if(g3 <= 0) grid.set(x + 1,y + 1, g3)
+
+              val feature = contourData.features(y * CHUNK_SIZE + x) //may be null
+              if(feature != null && CollisionEngineF.checkPoint2Circle(feature, circleGeo)){
+                contourData.features(y * CHUNK_SIZE + x) = null
+              }
+
+              val dataF = data.features(y * CHUNK_SIZE + x)
+              if(dataF != null){
+                contourData.features(y * CHUNK_SIZE + x) = dataF
+              }
+
+
+            }
+          }
+
+          val lines = makeLines(grid, contourData.features)
+          println(s"generated ${lines.size} lines")
+
+          contourData = contourData.copy(lines = lines)
+          linesRenderer.clearPools()
+          linesRenderer.deconstruct()
+          lines.foreach(line => linesRenderer.add(line, 0, Red))
+          linesRenderer.construct()
+
+        }
+      }
+    }
+  }
+
   def work(registry: GameRegistry): Unit ={
     this.registry = registry
     this.renderer = registry.Pack.renderer
@@ -458,17 +618,23 @@ class CorePack extends IPack {
     registry.Pack.addKeyCallback(onKeyCallback)
 
 
-    val circle1 = FCircle(Float2(4,8), 2F)
-    val circle2 = FCircle(Float2(8,8), 5F)
-    val circle3 = FCircle(Float2(4,4), 2F)
-    val circle4 = FCircle(Float2(8,12),4F)
-    val circle5 = FCircle(Float2(8,6),1.1F)
+    val offset = Float2(0.1F, 0.1F)
+    val circle1 = FCircle(Float2(4,8) + offset, 2F)
+    val circle2 = FCircle(Float2(8,8) + offset, 5F)
+    val circle3 = FCircle(Float2(4,4) + offset, 2F)
+    val circle4 = FCircle(Float2(8,12) + offset,4F)
+    val circle5 = FCircle(Float2(8,6) + offset,1.1F)
 
-    val rec = FRectangle2(Float2(8,12), Float2(1F,3F))
+    val rec = FRectangle2(Float2(8,10.8F) + offset, Float2(1F,3F))
 
     val shape = (((circle1 | circle2) | rec ) - circle3 - circle4 - circle5) | rec
 
-    fillInGrid(grid, shape.density)
+
+    val generator : Float2 => Float = shape.density
+    //val generator : Float2 => Float =
+
+
+    fillInGrid(grid, generator)
 
     val rad = 0.02F
 
@@ -477,21 +643,29 @@ class CorePack extends IPack {
       circleRenderer.add(RegularConvexPolygon2(v, rad, Nat._16), 0, if(s > 0) White else if(s < 0) White ⊗ Float3(t,t,t) else Green)
     })
 
-    val linesAndTrs = Timer.timed(dt => s"dual contouring took $dt ms"){
-       makeContour(grid, shape.density, 16) //accuracy <= 8 introduces visual artifacts
+    val data = Timer.timed(dt => s"dual contouring took $dt ms"){
+       makeContour(grid, generator, 32) //accuracy < 32 introduces visual artifacts
     }
 
-    println(s"generated ${linesAndTrs._1.size} lines and ${linesAndTrs._2.size} triangles")
+    println(s"generated ${data.lines.size} lines and ${data.triangles.size} triangles")
 
 
-    linesAndTrs._1.foreach(line => linesRenderer.add(line, 0, ColorUtils.Red))
-    linesAndTrs._2.foreach(tr => triangleRenderer.add(tr, 0, ColorUtils.Black))
+    data.lines.foreach(line => linesRenderer.add(line, 0, ColorUtils.Red))
+    data.triangles.foreach(tr => triangleRenderer.add(tr, 0, ColorUtils.Black))
 
+    contourData = data
+
+    triangleRenderer.construct()
+    linesRenderer.construct()
+    gridRenderer.construct()
+    circleRenderer.construct()
 
     registry.Pack.renderer.User.push(LifetimeManual, TransformationNone, linesRenderer, renderData)
-    //registry.Pack.renderer.User.push(LifetimeManual, TransformationNone, gridRenderer, renderData)
+    registry.Pack.renderer.User.push(LifetimeManual, TransformationNone, gridRenderer, renderData)
     //registry.Pack.renderer.User.push(LifetimeManual, TransformationNone, circleRenderer, renderData)
 
+
+    registry.Pack.addMouseCallback(mouseCallback)
 
     println("Core pack initialized")
   }
@@ -510,134 +684,3 @@ class CorePack extends IPack {
 }
 
 
-/*abstract sealed class QuadTree[T](var parent : QuadTree[T]){
-    var children : Vec4[QuadTree[T]] = null //2 3  <- indices based on location
-                                         //0 1
-  }
-
-  case class Node[T](c0 : QuadTree[T], c1 : QuadTree[T], c2 : QuadTree[T], c3 : QuadTree[T], par : QuadTree[T] = null) extends QuadTree[T](par){
-    c0.parent = this
-    c1.parent = this
-    c2.parent = this
-    c3.parent = this
-    children = Vec4 (c0, c1, c2, c3)
-
-  }
-
-  case class Leaf[T](var value : T, par : QuadTree[T] = null) extends QuadTree[T](par)
-
-  object LeafType extends Enumeration {
-    type LeafType = Value
-    val Surface, Full, Empty = Value
-  }
-  import LeafType._
-
-
-
-
-  def treeExample(): Unit = {
-    val tree = Node(
-      Leaf(1),
-      Leaf(2),
-      Leaf(3),
-        Node(
-        Leaf(4),
-        Leaf(5),
-        Leaf(6),
-        Leaf(7)
-      )
-    )
-
-    printTree(tree)
-
-  }
-
-
-  case class LeafData(samples : Float4, leafType: LeafType)
-
-
-  /**
-    * grid sizeX = sizeY and sizeX is multiple of 2
-    * @param rec
-    * @param grid
-    * @param f
-    * @return
-    */
-  def buildTree(rec: Rectangle2F, grid : VoxelGrid2[Float], f : Float2 => Float) : QuadTree[Float4] = {
-    val dx = rec.extent.x / grid.sizeX
-
-    val min = rec.center - rec.extent
-
-    //going through each leaf bundle (4 leaves that form a node)
-    cfor(0)(_ < grid.sizeX/2, _ + 1){ y =>
-      cfor(0)(_ < grid.sizeX/2, _ + 1){ x =>
-        val b00 = grid.get(2 * x, 2 * y)
-        val b01 = grid.get(2 * x + 1, 2 * y)
-        val b02 = grid.get(2 * x, 2 * y + 1)
-        val b03 = grid.get(2 * x + 1, 2 * y + 1) //block 0
-
-        val b10 = grid.get(2 * (x+1), 2 * y)
-        val b11 = grid.get(2 * (x+1) + 1, 2 * y)
-        val b12 = grid.get(2 * (x+1), 2 * y + 1)
-        val b13 = grid.get(2 * (x+1) + 1, 2 * y + 1)  //block 1
-
-        val b20 = grid.get(2 * x, 2 * (y+1))
-        val b21 = grid.get(2 * x + 1, 2 * (y+1))
-        val b22 = grid.get(2 * x, 2 * (y+1) + 1)
-        val b23 = grid.get(2 * x + 1, 2 * (y+1) + 1) //block 2
-
-        val b30 = grid.get(2 * (x+1), 2 * (y+1))
-        val b31 = grid.get(2 * (x+1) + 1, 2 * (y+1))
-        val b32 = grid.get(2 * (x+1), 2 * (y+1) + 1)
-        val b33 = grid.get(2 * (x+1) + 1, 2 * (y+1) + 1) //block 3
-
-        val l0 = Leaf(LeafData(Vec4(b00, b01, b02, b03), checkTreeType(b00, b01, b02, b03)))
-        val l1 = Leaf(LeafData(Vec4(b10, b11, b12, b13), checkTreeType(b00, b11, b12, b13)))
-        val l2 = Leaf(LeafData(Vec4(b20, b21, b22, b23), checkTreeType(b20, b21, b22, b23)))
-        val l3 = Leaf(LeafData(Vec4(b30, b31, b32, b33), checkTreeType(b30, b31, b32, b33)))
-
-        val node = Node(l0,l1,l2,l3)
-      }
-    }
-  }
-
-
-
-
-
-  def checkTreeType(v1: Float, v2: Float, v3: Float, v4: Float) : LeafType = {
-    if(v1 <= 0 && v2 <= 0 && v3 <= 0 && v4 <= 0){
-      LeafType.Full
-    }else if (v1 > 0 && v2 > 0 && v3 > 0 && v4 > 0){
-      LeafType.Empty
-    }else{
-      LeafType.Surface
-    }
-  }
-
-  def printTree[T](tree : QuadTree[T], level : Int = 0) : Unit = {
-
-    val STR = "   "
-    val RENDER = "-->"
-    def spaces(level : Int) : String = {
-      import spire.syntax.cfor._
-      val builder = new StringBuilder
-
-      cfor(0)(_ < level, _ + 1) { _ =>
-        builder ++= STR
-      }
-
-      builder.result()
-    }
-
-    val str = spaces(level) + RENDER
-    str |> print
-
-    tree match{
-      case node : Node[T] =>
-        "\n" |> print
-        for(child <- node.children) printTree(child, level + 1)
-      case leaf : Leaf[T] =>
-        (" " + leaf.value) |> println
-    }
-  }*/

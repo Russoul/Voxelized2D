@@ -27,6 +27,7 @@ class Voxelized2D{
 
   val renderingEngine = new RenderingEngine(this)
   val keyCallback = new GameKeyCallback(this)
+  val mouseCallback = new GameMouseCallback(this)
   val registry = new GameRegistry(this)
   private val windowInfo = new WindowInfo(Defaults.initialWindowWidth, Defaults.initialWindowHeight)
 
@@ -73,6 +74,8 @@ class Voxelized2D{
     // Setup a key callback. It will be called every time a key is pressed, repeated or released.
     glfwSetKeyCallback(windowInfo.getID(), keyCallback)
 
+    //mouse button callback
+    glfwSetMouseButtonCallback(windowInfo.getID(), mouseCallback)
 
 
     auto(stackPush){ stack =>

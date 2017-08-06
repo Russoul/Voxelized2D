@@ -2,7 +2,7 @@ package org.voxelized.pixelgame.core
 
 import org.voxelized.pixelgame.component.WindowInfoConst
 import org.voxelized.pixelgame.render.RenderingEngine
-import org.lwjgl.glfw.{GLFWKeyCallback, GLFWKeyCallbackI}
+import org.lwjgl.glfw.{GLFWKeyCallback, GLFWKeyCallbackI, GLFWMouseButtonCallback, GLFWMouseButtonCallbackI}
 import russoul.lib.common.utils.Arr
 
 /**
@@ -50,6 +50,8 @@ class GameRegistry(private val game: Voxelized2D) { registry =>
 
     }
 
+
+
     def removeKeyCallback(callback: GLFWKeyCallbackI) : Boolean = {
       val find = game.keyCallback.callbacks.find(callback)
 
@@ -60,6 +62,28 @@ class GameRegistry(private val game: Voxelized2D) { registry =>
       }else
         false
     }
+
+    def addMouseCallback(callback : GLFWMouseButtonCallbackI) : Boolean = {
+      if(!game.mouseCallback.callbacks.contains(callback)){
+        game.mouseCallback.callbacks += callback
+
+        true
+      }else
+        false
+    }
+
+
+    def removeMouseCallback(callback: GLFWMouseButtonCallbackI) : Boolean = {
+      val find = game.mouseCallback.callbacks.find(callback)
+
+      if(find.nonEmpty){
+        game.mouseCallback.callbacks.remove(find.get)
+
+        true
+      }else
+        false
+    }
+
 
     def addGameUpdateCallback(f: (WindowInfoConst, RenderingEngine) => Unit): Boolean ={
       if(!gameUpdateCallbacks.contains(f)){
