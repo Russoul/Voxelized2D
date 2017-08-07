@@ -1,6 +1,6 @@
 package org.voxelized.pixelgame.render.concrete.vertfrag
 
-import org.voxelized.pixelgame.render.definition.{AttribPointersVertFrag, RendererVertFragDefault}
+import org.voxelized.pixelgame.render.definition.{AttribPointersVertFragColor, RendererVertFragDefault}
 import org.lwjgl.opengl.GL11.{GL_FLOAT, GL_TRIANGLES}
 import org.lwjgl.opengl.GL20.{glEnableVertexAttribArray, glVertexAttribPointer}
 import russoul.lib.common._
@@ -10,9 +10,9 @@ import Implicits._
 /**
   * Created by russoul on 17.07.2017.
   */
-class RenderTriangleColor extends RendererVertFragDefault with AttribPointersVertFrag{
+class RenderTriangleColor extends RendererVertFragDefault with AttribPointersVertFragColor{
   override val renderMode: Int = GL_TRIANGLES
-  override val vertexSize: Int = 6 //vec3 as pos with depth + vec3 as color
+  //override val vertexSize: Int = 6 already set in AttribPointersVertFragColor
 
 
   def add(triangle: Triangle2F, zLevel: Float, color: Float3): Unit ={

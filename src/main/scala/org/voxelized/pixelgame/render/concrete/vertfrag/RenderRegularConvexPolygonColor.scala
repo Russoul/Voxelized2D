@@ -1,6 +1,6 @@
 package org.voxelized.pixelgame.render.concrete.vertfrag
 
-import org.voxelized.pixelgame.render.definition.{AttribPointersVertFrag, RendererVertFrag, RendererVertFragDefault}
+import org.voxelized.pixelgame.render.definition.{AttribPointersVertFragColor, RendererVertFrag, RendererVertFragDefault}
 import org.lwjgl.opengl.GL20._
 import org.lwjgl.opengl.GL11._
 import russoul.lib.common._
@@ -12,9 +12,9 @@ import shapeless.ops.nat.ToInt
 /**
   * Created by russoul on 15.07.2017.
   */
-class RenderRegularConvexPolygonColor extends RendererVertFragDefault with AttribPointersVertFrag{
+class RenderRegularConvexPolygonColor extends RendererVertFragDefault with AttribPointersVertFragColor{
   override val renderMode: Int = GL_TRIANGLES
-  override val vertexSize: Int = 6 //vec3 as pos with depth + vec3 as color
+  //override val vertexSize: Int = 6 already set in AttribPointersVertFragColor
 
 
   def add[N <: Nat : ToInt](shape: RegularConvexPolygon2[Float,N], zLevel: Float, color: Float3) : Unit = {

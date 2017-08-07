@@ -6,9 +6,9 @@ import org.lwjgl.opengl.GL20.{glEnableVertexAttribArray, glVertexAttribPointer}
 /**
   * Created by russoul on 20.07.2017.
   */
-trait AttribPointersVertFrag {
+trait AttribPointersVertFragColor {
 
-  protected val vertexSize: Int
+  protected val vertexSize: Int = 6
 
   def setAttributePointers(): Unit = {
     glVertexAttribPointer(0, 3, GL_FLOAT, false, vertexSize * 4, 0)

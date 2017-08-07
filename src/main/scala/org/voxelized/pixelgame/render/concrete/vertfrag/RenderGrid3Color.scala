@@ -1,6 +1,6 @@
 package org.voxelized.pixelgame.render.concrete.vertfrag
 
-import org.voxelized.pixelgame.render.definition.{AttribPointersVertFrag, RendererVertFragDefault}
+import org.voxelized.pixelgame.render.definition.{AttribPointersVertFragColor, RendererVertFragDefault}
 import org.lwjgl.opengl.GL11._
 import russoul.lib.common._
 import Implicits._
@@ -8,8 +8,8 @@ import Implicits._
 /**
   * Created by russoul on 20.07.2017.
   */
-class RenderGrid3Color extends RendererVertFragDefault with AttribPointersVertFrag{
-  override protected val vertexSize: Int = 6
+class RenderGrid3Color extends RendererVertFragDefault with AttribPointersVertFragColor{
+  //override val vertexSize: Int = 6 already set in AttribPointersVertFragColor
 
   override def renderMode(): Int = GL_LINES
 

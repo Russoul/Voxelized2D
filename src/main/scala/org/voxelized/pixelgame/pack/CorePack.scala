@@ -1,9 +1,11 @@
 package org.voxelized.pixelgame.pack
 
+import java.nio.ByteBuffer
+
 import org.voxelized.pixelgame.component.{WindowInfo, WindowInfoConst}
 import org.voxelized.pixelgame.core.{GameRegistry, IPack}
 import org.voxelized.pixelgame.render.RenderingEngine
-import org.voxelized.pixelgame.render.concrete.vertfrag.{RenderGrid3Color, RenderLineColor, RenderRegularConvexPolygonColor, RenderTriangleColor}
+import org.voxelized.pixelgame.render.concrete.vertfrag._
 import org.voxelized.pixelgame.render.definition.{LifetimeManual, LifetimeOneDraw, TransformationNone, TransformationUI}
 import org.lwjgl.glfw.GLFW._
 import russoul.lib.common.{CircleF, FCircle, FShape2, Float2, Line2F, Triangle2F, _}
@@ -19,15 +21,18 @@ import ColorUtils._
 import russoul.lib.common.math.algebra.Vec
 import russoul.lib.common.math.geometry.simple.Square2Over
 import Nat._
-import org.lwjgl.opengl.GL11
-import org.lwjgl.system.MemoryStack
+import org.lwjgl.opengl.{GL11, GL13, GL30}
+import org.lwjgl.stb.{STBImage, STBImageWrite}
+import org.lwjgl.system.{MemoryStack, MemoryUtil}
 import org.voxelized.pixelgame.lib.VoxelGrid2
 import org.voxelized.pixelgame.render.RenderingEngine.RenderDataProvider
 import russoul.lib.common.math.CollisionEngineF
 import russoul.lib.common._
 import spire.syntax.cfor._
+import MemoryStack._
 
 import scala.reflect.ClassTag
+import scala.util.Failure
 
 /**
   * Created by russoul on 17.07.2017.
@@ -46,8 +51,8 @@ class CorePack extends IPack {
   val TIMER_KEY_INPUT = "CorePack_KeyInput"
   
 
-  final val BLOCK_SIZE: Float = 0.25F
-  final val CHUNK_SIZE: Int = 64
+  final val BLOCK_SIZE: Float = 0.125F
+  final val CHUNK_SIZE: Int = 128
 
   {
     timer.update(TIMER_KEY_INPUT)
@@ -62,7 +67,7 @@ class CorePack extends IPack {
     val speed = 8F
 
     if(glfwGetKey(win.id, GLFW_KEY_TAB) == GLFW_PRESS ||glfwGetKey(win.id, GLFW_KEY_TAB) == GLFW_REPEAT){
-      render.User.push(LifetimeOneDraw, TransformationNone, triangleRenderer, renderData)
+      render.User.push(LifetimeOneDraw, TransformationNone, tTriangleRenderer, renderData)
     }
 
     val dt = timer.getDeltaSec(TIMER_KEY_INPUT).toFloat //TODO what if the game pauses ?
@@ -399,8 +404,8 @@ class CorePack extends IPack {
     null
   }
 
-  
-  
+
+
   case class ContourData(lines : Arr[Line2F], triangles : Arr[Triangle2F], features : Array[Float2], intersections: Array[Arr[Float2]], extras : Array[Arr[Float2]])
 
   /**
@@ -551,12 +556,13 @@ class CorePack extends IPack {
 
   val linesRenderer = new RenderLineColor
   val circleRenderer = new RenderRegularConvexPolygonColor
-  val triangleRenderer = new RenderTriangleColor
+  val tTriangleRenderer = new RenderTriangleTextureColor
+  //val tTriangleRenderer = new RenderTriangleTextureColor
 
   val gridRenderer = new RenderGrid3Color
 
   {
-    gridRenderer.add(8, 32, White, Mat4F.rotationDeg(Float3(1,0,0), 90) ⨯ Mat4F.translation(Float3(8,8,0)))
+    gridRenderer.add(8, CHUNK_SIZE/2, White, Mat4F.rotationDeg(Float3(1,0,0), 90) ⨯ Mat4F.translation(Float3(8,8,0)))
   }
 
   var registry: GameRegistry    = _
@@ -566,29 +572,7 @@ class CorePack extends IPack {
   var contourData : ContourData = _
 
 
-  def shaderData(shader: Shader, windowInfo: WindowInfoConst): Shader = {
-    val aspect = windowInfo.width / windowInfo.height
 
-    val height = 16
-    val width = height * aspect
-
-    shader.setMat4("V", Mat4F.translation(-Float3(camWorldPos, 0)), transpose = true)
-    //shader.setMat4("P", Mat4F.ortho(16, 16, 16, 16, -16, 16))
-    shader.setMat4("P", Mat4F.ortho(0, width, 0, height, -1, 1))
-    //println("")
-
-    shader
-  }
-
-  def preRenderState() : Unit = {
-    GL11.glPushAttrib(GL11.GL_ENABLE_BIT)
-    GL11.glDisable(GL11.GL_CULL_FACE)
-    GL11.glPopAttrib()
-  }
-  def postRenderState() : Unit = {
-  }
-
-  val renderData = Some(new RenderDataProvider(Some(shaderData), Some(preRenderState), Some(postRenderState)))
 
 
   def nonEmptyBlock(vg : VoxelGrid2[Float], x : Int, y : Int) : Boolean = {
@@ -609,6 +593,53 @@ class CorePack extends IPack {
     val p3 = vg.get(x + 1, y + 1) //we use get here instead of f(..) because get is cached and the same sample points are used more then once throughout the algorithm
 
     p0 <= 0 && p1 <= 0 && p2 <= 0 && p3 <= 0
+  }
+
+  @inline def asFloat(a : Int2) : Float2 = Float2(a._0, a._1)
+  @inline def truncate(a : Float2) : Int2 = Int2(a._0.toInt, a._1.toInt)
+
+  /**
+    * triangle mapped on texture rect resulting in texture coords
+    * @param tr must be contained within `rect`
+    * @param rect
+    * @param texMin minimum (x,y) pos on texture (starting from top left !)
+    * @param texMax maximum (x,y) pos on texture
+    * @return
+    */
+  def mapped(tr : Triangle2F, rect : Rectangle2F, texMin : Int2, texMax : Int2, texWidth : Int, texHeight : Int) : Array[Float2] = {
+
+    val minF = Float2(texMin.x.toFloat / texWidth, texMin.y.toFloat / texHeight)
+    val maxF = Float2(texMax.x.toFloat / texWidth, texMax.y.toFloat / texHeight)
+
+    val origin = rect.center - rect.extent
+
+    val width = rect.extent.x * 2
+    val height = rect.extent.y * 2
+
+    val invDim = Float2(1F/width, 1F/height)
+
+    val dp1 = tr.p1 - origin
+    val dp2 = tr.p2 - origin
+    val dp3 = tr.p3 - origin
+
+    val ddp1 = dp1 ⊗ invDim
+    val ddp2 = dp2 ⊗ invDim
+    val ddp3 = dp3 ⊗ invDim
+
+    val delta = maxF - minF
+
+    val p1 = delta ⊗ ddp1 + minF //TODO implement repeat pattern
+    val p2 = delta ⊗ ddp2 + minF
+    val p3 = delta ⊗ ddp3 + minF
+
+    Array(p1,p2,p3)
+  }
+
+
+  @inline def rect(origin : Float2, grid: VoxelGrid2[Float]) : Rectangle2F = {
+    val extent = Float2(grid.sizeX, grid.sizeY) * (grid.a / 2F)
+
+    Rectangle2F(origin + extent, extent)
   }
 
   def mouseCallback(window : Long, button : Int, action : Int, mods : Int) : Unit = { //TODO exceptions are suppressed ??
@@ -686,73 +717,102 @@ class CorePack extends IPack {
               val blocks = gridIntersections(BLOCK_SIZE, circleGeo)
 
               println(s"changed ${blocks.size} blocks")
-              for(coord <- blocks){
+
+              var correct = true //TODO remove
+
+              /*for(coord <- blocks){
                 val x = coord.x
                 val y = coord.y
-
-
                 val t = y * CHUNK_SIZE + x
 
-                val feature = contourData.features(t) //may be null
-                if(feature != null && CollisionEngineF.checkPoint2Circle(feature, circleGeo)){
-                  contourData.features(t) = null
-                }
 
-                val dataF = circleData.features(t)
-                if(dataF != null){
-                  contourData.features(t) = dataF
-                }
-
-                if(emptyBlock(grid, x, y)){
-                  contourData.intersections(t) = circleData.intersections(t)
-                  contourData.extras(t) = circleData.extras(t)
-                }else if(!fullBlock(grid, x, y)){
-                  if(fullBlock(newGrid, x, y)){
-                    contourData.intersections(t) = circleData.intersections(t)
-                    contourData.extras(t) = circleData.extras(t)
-                  }else if (nonEmptyBlock(newGrid, x, y)){ //both are partial
-                    contourData.intersections(t) ++= circleData.intersections(t)
-                    contourData.extras(t) ++= circleData.extras(t)
+                if(nonEmptyBlock(grid, x, y) && !fullBlock(grid,x,y)){
+                  if (nonEmptyBlock(newGrid, x, y) && !fullBlock(newGrid,x,y)){ //both are partial
+                    correct = false
                   }
                 }
+              }*/
+
+
+              if(!correct){
+                println("incorrect placement")
+              }else{
+
+
+                for(coord <- blocks){
+                  val x = coord.x
+                  val y = coord.y
+
+
+                  val t = y * CHUNK_SIZE + x
+
+                  /*val feature = contourData.features(t) //may be null
+                  if(feature != null && CollisionEngineF.checkPoint2Circle(feature, circleGeo)){
+                    contourData.features(t) = null
+                  }
+
+                  val dataF = circleData.features(t)
+                  if(dataF != null){
+                    contourData.features(t) = dataF
+                  }*/
+
+                  val dataF = circleData.features(t)
+                  if(emptyBlock(grid, x, y)){
+                    contourData.features(t) = dataF
+                    contourData.intersections(t) = circleData.intersections(t)
+                    contourData.extras(t) = circleData.extras(t)
+                  }else if(!fullBlock(grid, x, y)){ //partial
+                    if(fullBlock(newGrid, x, y)){
+                      contourData.features(t) = dataF
+                      contourData.intersections(t) = circleData.intersections(t)
+                      contourData.extras(t) = circleData.extras(t)
+                    }else if (nonEmptyBlock(newGrid, x, y)){ //both are partial
+
+                      contourData.features(t) = (contourData.features(t) + circleData.features(t)) * 0.5F
+                      contourData.intersections(t) ++= circleData.intersections(t)
+                      contourData.extras(t) ++= circleData.extras(t)
+
+                    }
+                  }
+
+                }
+
+
+                //change the grid at last (we use it before)
+                for(coord <- blocks){
+                  val x = coord.x
+                  val y = coord.y
+
+                  val g0 = newGrid.get(x,y)
+                  val g1 = newGrid.get(x + 1,y)
+                  val g2 = newGrid.get(x,y + 1)
+                  val g3 = newGrid.get(x + 1,y + 1)
+
+                  grid.set(x,y, Math.min(g0, grid.get(x,y))) //operation OR
+                  grid.set(x + 1,y, Math.min(g1, grid.get(x + 1,y)))
+                  grid.set(x,y + 1, Math.min(g2, grid.get(x,y + 1)))
+                  grid.set(x + 1,y + 1, Math.min(g3, grid.get(x + 1,y + 1)))
+                }
 
 
 
+                val lines = makeLines(grid, contourData.features)
+                println(s"generated ${lines.size} lines")
+                val triangles = makeTriangles(grid, contourData.features, contourData.intersections, contourData.extras)
+                println(s"generated ${triangles.size} triangles") //TODO generated triangles only on changed blocks
+
+                contourData = contourData.copy(lines = lines, triangles = triangles)
+
+                linesRenderer.clearPools()
+                linesRenderer.deconstruct()
+                lines.foreach(line => linesRenderer.add(line, 0, Red))
+                linesRenderer.construct()
+
+                tTriangleRenderer.clearPools()
+                tTriangleRenderer.deconstruct()
+                triangles.foreach(tr => tTriangleRenderer.add(tr, 0, mapped(tr, rect(point, grid), texture_tiles_grass_min, texture_tiles_grass_max, 256, 256), White))
+                tTriangleRenderer.construct()
               }
-
-
-              //change the grid at last (we use it before)
-              for(coord <- blocks){
-                val x = coord.x
-                val y = coord.y
-
-                val g0 = newGrid.get(x,y)
-                val g1 = newGrid.get(x + 1,y)
-                val g2 = newGrid.get(x,y + 1)
-                val g3 = newGrid.get(x + 1,y + 1)
-
-                grid.set(x,y, Math.min(g0, grid.get(x,y))) //operation OR
-                grid.set(x + 1,y, Math.min(g1, grid.get(x + 1,y)))
-                grid.set(x,y + 1, Math.min(g2, grid.get(x,y + 1)))
-                grid.set(x + 1,y + 1, Math.min(g3, grid.get(x + 1,y + 1)))
-              }
-
-              val lines = makeLines(grid, contourData.features)
-              println(s"generated ${lines.size} lines")
-              val triangles = makeTriangles(grid, contourData.features, contourData.intersections, contourData.extras)
-              println(s"generated ${triangles.size} triangles") //TODO generated triangles only on changed blocks
-
-              contourData = contourData.copy(lines = lines, triangles = triangles)
-
-              linesRenderer.clearPools()
-              linesRenderer.deconstruct()
-              lines.foreach(line => linesRenderer.add(line, 0, Red))
-              linesRenderer.construct()
-
-              triangleRenderer.clearPools()
-              triangleRenderer.deconstruct()
-              triangles.foreach(tr => triangleRenderer.add(tr, 0, Black))
-              triangleRenderer.construct()
 
             }
           }
@@ -760,7 +820,38 @@ class CorePack extends IPack {
     }
   }
 
-  def work(registry: GameRegistry): Unit ={
+
+  def shaderData(shader: Shader, windowInfo: WindowInfoConst): Shader = {
+    val aspect = windowInfo.width / windowInfo.height
+
+    val height = 16
+    val width = height * aspect
+
+    shader.setMat4("V", Mat4F.translation(-Float3(camWorldPos, 0)), transpose = true)
+    //shader.setMat4("P", Mat4F.ortho(16, 16, 16, 16, -16, 16))
+    shader.setMat4("P", Mat4F.ortho(0, width, 0, height, -1, 1))
+    //println("")
+
+    shader
+  }
+
+  def preRenderState() : Unit = {
+    GL11.glPushAttrib(GL11.GL_ENABLE_BIT)
+    GL11.glEnable(GL11.GL_TEXTURE_2D)
+    GL11.glDisable(GL11.GL_CULL_FACE)
+
+    GL13.glActiveTexture(GL13.GL_TEXTURE0)
+    GL11.glBindTexture(GL11.GL_TEXTURE_2D, texture_tiles)
+
+  }
+  def postRenderState() : Unit = {
+    GL11.glPopAttrib()
+    GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0)
+  }
+
+  val renderData = Some(new RenderDataProvider(Some(shaderData), Some(preRenderState), Some(postRenderState)))
+
+  def run(registry: GameRegistry): Unit ={
     this.registry = registry
     this.renderer = registry.Pack.renderer
 
@@ -802,15 +893,18 @@ class CorePack extends IPack {
     println(s"generated ${data.lines.size} lines and ${data.triangles.size} triangles")
 
 
-    data.lines.foreach(line => linesRenderer.add(line, 0, ColorUtils.Red))
-    data.triangles.foreach(tr => triangleRenderer.add(tr, 0, ColorUtils.Black))
+    data.lines.foreach(line => linesRenderer.add(line, 0, Red))
+    data.triangles.foreach(tr => tTriangleRenderer.add(tr, 0, mapped(tr, rect(point, grid), texture_tiles_grass_min, texture_tiles_grass_max, 256, 256), White))
 
     contourData = data
 
     //TODO debug
     linesRenderer.add(Line2F(Float2(0,0), Float2(1,0)), 0, Red)
+    val t = 64F/256F
+    tTriangleRenderer.add(Triangle2F(Float2(0,0), Float2(1,0), Float2(1,1)), 0, Array(Float2(0,0), Float2(t,0), Float2(t,t)), White)
+    tTriangleRenderer.add(Triangle2F(Float2(0,0), Float2(1,1), Float2(0,1)), 0, Array(Float2(0,0), Float2(t,t), Float2(0,t)), White)
 
-    triangleRenderer.construct()
+    tTriangleRenderer.construct()
     linesRenderer.construct()
     gridRenderer.construct()
     circleRenderer.construct()
@@ -818,7 +912,7 @@ class CorePack extends IPack {
 
 
     registry.Pack.renderer.User.push(LifetimeManual, TransformationNone, linesRenderer, renderData)
-    registry.Pack.renderer.User.push(LifetimeManual, TransformationNone, gridRenderer, renderData)
+    //registry.Pack.renderer.User.push(LifetimeManual, TransformationNone, gridRenderer, renderData)
     //registry.Pack.renderer.User.push(LifetimeManual, TransformationNone, circleRenderer, renderData)
 
 
@@ -827,14 +921,96 @@ class CorePack extends IPack {
     println("Core pack initialized")
   }
 
+
+  /**
+    *
+    * @param img
+    * @param width
+    * @param height
+    * @param comp
+    * @return new image, don't forget to clean up
+    */
+  def flip(img: ByteBuffer, width: Int, height : Int, comp : Int) : ByteBuffer = {
+
+    val res = MemoryUtil.memAlloc(comp * width * height)
+
+    for(y <- 0 until height){
+      for(x <- 0 until width){
+        val r = img.get(y * width * comp + x * comp)
+        val g = img.get(y * width * comp + x * comp + 1)
+        val b = img.get(y * width * comp + x * comp + 2)
+        val a = img.get(y * width * comp + x * comp + 3)
+
+        res.put((height - y - 1) * width * comp + x * comp,     r)
+        res.put((height - y - 1) * width * comp + x * comp + 1, g)
+        res.put((height - y - 1) * width * comp + x * comp + 2, b)
+        res.put((height - y - 1) * width * comp + x * comp + 3, a)
+      }
+    }
+
+    res
+  }
+
+  var texture_tiles : Int = 0 //TODO don't forget to delete textures !
+  var texture_tiles_grass_min = Int2(0,0)
+  var texture_tiles_grass_max = Int2(64,64)
+  def load(registry: GameRegistry): Unit = {
+    auto(stackPush){ stack =>
+
+      val x,y, channels = stack.mallocInt(1)
+
+      STBImage.stbi_set_flip_vertically_on_load(true)
+      val img = STBImage.stbi_load("src/main/resources/assets/textures/material/tiles.png", x, y, channels, STBImage.STBI_rgb_alpha)
+      //val b = STBImageWrite.stbi_write_png("src/main/resources/assets/textures/material/tiles1.png", x.get, y.get, 4, img, 4 * x.get)
+
+      val width = x.get()
+      val height = y.get() //dont forget that the pointer is set to the next int
+
+      //println("test "+ b)
+      println(s"loaded tiles.png: x = $width, y = $height, channels = ${channels.get()}, img = $img, direct = ${if(img != null) img.isDirect else false}")
+
+      //val flipped = flip(img, width, height, 4)
+
+      import org.lwjgl.opengl.GL11._
+
+
+      val textureID = glGenTextures(); //Generate texture ID
+      glBindTexture(GL_TEXTURE_2D, textureID); //Bind texture ID
+
+      //Setup wrap mode
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
+
+      //Setup texture scaling filtering
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+
+      //Send texel data to OpenGL
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, img)
+      GL30.glGenerateMipmap(GL_TEXTURE_2D)
+
+      STBImage.stbi_image_free(img)
+      //MemoryUtil.memFree(flipped)
+
+      texture_tiles = textureID
+    }
+
+
+
+    println("resources loaded")
+  }
+
   override def init(registry: GameRegistry): Unit = {
-    work(registry)
+    load(registry)
+    run(registry)
   }
 
   override def deinit(registry: GameRegistry): Unit = {
     linesRenderer.deconstruct()
     gridRenderer.deconstruct()
     circleRenderer.deconstruct()
+
+    GL11.glDeleteTextures(texture_tiles)
 
     println("Core pack deinitialized")
   }

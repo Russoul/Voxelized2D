@@ -44,6 +44,7 @@ libraryDependencies += lwjglOrganization % "lwjgl-opencl"   % lwjglVersion
 libraryDependencies += lwjglOrganization % "lwjgl-sse"      % lwjglVersion
 libraryDependencies += lwjglOrganization % "lwjgl-par"      % lwjglVersion
 libraryDependencies += lwjglOrganization % "lwjgl-stb"      % lwjglVersion
+libraryDependencies += lwjglOrganization % "lwjgl-stb"   % lwjglVersion classifier natives
 libraryDependencies += lwjglOrganization % "lwjgl-xxhash"   % lwjglVersion
 libraryDependencies += lwjglOrganization % "lwjgl-yoga"     % lwjglVersion
 //...
