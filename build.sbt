@@ -1,7 +1,10 @@
-name := "voxelized2d"
-version := "0.0.1"
-scalaVersion := "2.12.2"
-organizationName := "org.voxelized"
+
+lazy val coreSettings = Seq(
+  name := "voxelized2d",
+  version := "0.0.1",
+  scalaVersion := "2.12.2",
+  organizationName := "org.voxelized"
+)
 
 val lwjglOrganization = "org.lwjgl"
 val lwjglVersion = "3.1.2"
@@ -15,7 +18,7 @@ val natives = SystemUtils.OS.here.name match{
 
 resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots"
 
-lazy val `voxelized2d` = (project in file("."))//.dependsOn(RootProject(uri("git://github.com/Russoul/UniScalaLib.git")))
+lazy val `voxelized2d` = (project in file(".")).settings(coreSettings)//.dependsOn(RootProject(uri("git://github.com/Russoul/UniScalaLib.git")))
 
 
 
