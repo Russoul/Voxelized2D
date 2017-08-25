@@ -140,7 +140,6 @@ class CorePack extends IPack {
   def sampleIntersectionBrute(line : Line2F, n: Int, f : Float2 => Float) : Float2 = {
     val ext = line.end - line.start
 
-    var best = 100000000F
     var bestAbs = 100000000F //placeholder TODO
     var bestPoint = nil[Float2]
 
@@ -151,7 +150,6 @@ class CorePack extends IPack {
 
       if(abs < bestAbs){
         bestAbs = abs
-        best = den
         bestPoint = point
       }
 
@@ -305,82 +303,33 @@ class CorePack extends IPack {
       var vert1 = nil[Float2]
       var vert2 = nil[Float2]
 
+
+      @inline def worker(and : Int, v_a : Float2, v_b : Float2, p_a : Float, p_b : Float): Unit ={
+        if( (sit & and) > 0){
+
+          val ip = sampleIntersectionBrute(Line2F(v_a,v_b), accuracy, f) //find point of intersection of the surface with this edge with given precision (sampling algorith is used)
+          val full = if(p_a <= 0) v_a else v_b //choose the end point of the edge to draw a triangle with
+          circleRenderer.add(RegularConvexPolygon2(ip, 0.1F,Nat._16), 0F, Blue) //debug render
+          val dir = sampleTangent(Square2F(ip, extForNormal), accuracy, f) //find tangent line to the surface at found point of intersection
+          val line = Line2F(ip - dir / extForNormal, ip + dir / extForNormal)//^
+          tangents += line //put it to the list of all found tangents
+
+          outIntersections += ip //add intersection point to the list of all intersection points
+          outExtra += full //for triangle drawing
+        }else{
+          val negative = p_a < 0
+          if(negative){ //if the edge is inside the surface then render a triangle using end points and resulting feature vertex
+            outIntersections += v_a
+            outExtra += v_b
+          }
+        }
+      }
+
       //for each edge of intersection with the surface (surface intersects the edge <=> edge's end points have different signs) :
-      if( (sit & 1) > 0){
-
-        val ip = sampleIntersectionBrute(Line2F(v0,v1), accuracy, f) //find point of intersection of the surface with this edge with given precision (sampling algorith is used)
-        val full = if(p0 <= 0) v0 else v1 //choose the end point of the edge to draw a triangle with
-        circleRenderer.add(RegularConvexPolygon2(ip, 0.1F,Nat._16), 0F, Blue) //debug render
-        val dir = sampleTangent(Square2F(ip, extForNormal), accuracy, f) //find tangent line to the surface at found point of intersection
-        val line = Line2F(ip - dir / extForNormal, ip + dir / extForNormal)//^
-        tangents += line //put it to the list of all found tangents
-
-        outIntersections += ip //add intersection point to the list of all intersection points
-        outExtra += full //for triangle drawing
-      }else{
-        val negative = p0 < 0
-        if(negative){ //if the edge is inside the surface then render a triangle using end points and resulting feature vertex
-          outIntersections += v0
-          outExtra += v1
-        }
-      }
-      if((sit & 2) > 0){ //same for the other edges
-
-
-
-        val ip = sampleIntersectionBrute(Line2F(v1,v3), accuracy, f)
-        val full = if(p1 <= 0) v1 else v3
-        circleRenderer.add(RegularConvexPolygon2(ip, 0.1F,Nat._16), 0F, Blue)
-        val dir = sampleTangent(Square2F(ip, extForNormal), accuracy, f)
-        val line = Line2F(ip - dir / extForNormal, ip + dir / extForNormal)
-        tangents += line
-
-        outIntersections += ip
-        outExtra += full
-      }else{
-        val negative = p1 < 0
-        if(negative){
-          outIntersections += v1
-          outExtra += v3
-        }
-      }
-      if((sit & 4) > 0){
-        val ip = sampleIntersectionBrute(Line2F(v3,v2), accuracy, f)
-
-
-        val full = if(p3 <= 0) v3 else v2
-        circleRenderer.add(RegularConvexPolygon2(ip, 0.1F,Nat._16), 0F, Blue)
-        val dir = sampleTangent(Square2F(ip, extForNormal), accuracy, f)
-        val line = Line2F(ip - dir / extForNormal, ip + dir / extForNormal)
-        tangents += line
-
-        outIntersections += ip
-        outExtra += full
-
-      }else{
-        val negative = p3 < 0
-        if(negative){
-          outIntersections += v3
-          outExtra += v2
-        }
-      }
-      if((sit & 8) > 0){
-        val ip = sampleIntersectionBrute(Line2F(v2,v0), accuracy, f)
-        val full = if(p2 <= 0) v2 else v0
-        circleRenderer.add(RegularConvexPolygon2(ip, 0.1F,Nat._16), 0F, Blue)
-        val dir = sampleTangent(Square2F(ip, extForNormal), accuracy, f)
-        val line = Line2F(ip - dir / extForNormal, ip + dir / extForNormal)
-        tangents += line
-
-        outIntersections += ip
-        outExtra += full
-      }else{
-        val negative = p2 < 0
-        if(negative){
-          outIntersections += v2
-          outExtra += v0
-        }
-      }
+      worker(1, v0, v1, p0, p1)
+      worker(2, v1, v3, p1, p3)
+      worker(4, v3, v2, p3, p2)
+      worker(8, v2, v0, p2, p0)
 
       //the main and the most interesting part :
       //calculate the feature vertex using quadratic error function minimization algorithm
@@ -852,6 +801,9 @@ class CorePack extends IPack {
   val renderData = Some(new RenderDataProvider(Some(shaderData), Some(preRenderState), Some(postRenderState)))
 
   def run(registry: GameRegistry): Unit ={
+
+    Thread.sleep(5000)
+
     this.registry = registry
     this.renderer = registry.Pack.renderer
 
@@ -877,7 +829,15 @@ class CorePack extends IPack {
     //val generator : Float2 => Float =
 
 
-    fillInGrid(grid, generator)
+
+    val data = Timer.timed(dt => s"dual contouring (with grid filling) took $dt ms"){
+      fillInGrid(grid, generator)
+      makeContour(grid, generator, 32) //accuracy < 32 introduces visual artifacts
+    }
+
+
+    println(s"generated ${data.lines.size} lines and ${data.triangles.size} triangles")
+
 
     val rad = 0.02F
 
@@ -885,13 +845,6 @@ class CorePack extends IPack {
       val t = 0
       circleRenderer.add(RegularConvexPolygon2(v, rad, Nat._16), 0, if(s > 0) White else if(s < 0) White ⊗ Float3(t,t,t) else Green)
     })
-
-    val data = Timer.timed(dt => s"dual contouring took $dt ms"){
-       makeContour(grid, generator, 32) //accuracy < 32 introduces visual artifacts
-    }
-
-    println(s"generated ${data.lines.size} lines and ${data.triangles.size} triangles")
-
 
     data.lines.foreach(line => linesRenderer.add(line, 0, Red))
     data.triangles.foreach(tr => tTriangleRenderer.add(tr, 0, mapped(tr, rect(point, grid), texture_tiles_grass_min, texture_tiles_grass_max, 256, 256), White))

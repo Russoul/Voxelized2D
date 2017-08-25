@@ -75,7 +75,6 @@ trait RendererVertFragDefault extends RendererVertFrag{
     glBindVertexArray(VAO)
     glDrawElements(renderMode(), indexPool.size, GL_UNSIGNED_INT, 0)
     glBindVertexArray(0)
-
     true
   }
 }

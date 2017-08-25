@@ -15,7 +15,6 @@ import russoul.lib.common.Implicits._
 class Shader(vertexSource: String, fragmentSource: String) {
   final val ID: Int = ShaderUtils.createProgram(vertexSource, fragmentSource)
   protected var locationCache: util.HashMap[String, Integer] = new HashMap[String, Integer]
-  protected var enabled: Boolean = false
 
 
   def getUniform(name: String): Int =
@@ -35,39 +34,39 @@ class Shader(vertexSource: String, fragmentSource: String) {
 
   def setBool(name: String, value: Boolean): Unit =
   {
-    if (!enabled) enable()
+    enable()
     glUniform1i(getUniform(name), if (value) 1 else 0)
   }
 
   def setInt(name: String, value: Int)
   {
-    if (!enabled) enable
+    enable()
     glUniform1i(getUniform(name), value)
   }
 
   def setFloat(name: String, value: Float)
   {
-    if (!enabled) enable
+    enable()
     glUniform1f(getUniform(name), value)
   }
 
 
   def setVec2(name: String, x: Float, y: Float)
   {
-    if (!enabled) enable
+    enable()
     glUniform2f(getUniform(name), x, y)
   }
 
   //Those functions convert double input to float
   def setVec3(name: String, vector: Float3)
   {
-    if (!enabled) enable
+    enable
     glUniform3f(getUniform(name), vector.x, vector.y, vector.z)
   }
 
   def setVec4(name: String, vector: Float4)
   {
-    if (!enabled) enable
+    enable
     glUniform4f(getUniform(name), vector.x, vector.y, vector.z, vector.w)
   }
 
@@ -80,7 +79,7 @@ class Shader(vertexSource: String, fragmentSource: String) {
   def setMat4(name: String, matrix: Mat4F, transpose: Boolean = false)
   {
 
-    if (!enabled) enable
+    enable()
     glUniformMatrix4fv(getUniform(name), transpose, matrix.toArray) //in GLSL matrix-vector multiplication is column vector based !!!, transpose is needed !
   }
   //......................................................
@@ -88,7 +87,7 @@ class Shader(vertexSource: String, fragmentSource: String) {
 
   def isInUse(): Boolean =
   {
-    var id = new Array[Int](1)
+    val id = new Array[Int](1)
     glGetIntegerv(GL_CURRENT_PROGRAM,id)
 
     id(0) == ID

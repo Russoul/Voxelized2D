@@ -2,7 +2,7 @@
 lazy val coreSettings = Seq(
   name := "voxelized2d",
   version := "0.0.1",
-  scalaVersion := "2.12.2",
+  scalaVersion := "2.12.3",
   organizationName := "org.voxelized"
 )
 
@@ -19,7 +19,10 @@ val natives = SystemUtils.OS.here.name match{
 resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots"
 
 lazy val `voxelized2d` = (project in file(".")).settings(coreSettings)//.dependsOn(RootProject(uri("git://github.com/Russoul/UniScalaLib.git")))
-
+javaOptions ++= Seq("-XX:+UseG1GC" ,"-XX:MaxGCPauseMillis=2", "-Xms1024M", "-Xmx4096M")
+//javaOptions ++= Seq("-XX:+PrintGCDetails")
+javaOptions ++= Seq("-Dcom.sun.management.jmxremote=true", "-Dcom.sun.management.jmxremote.port=20000", "-Dcom.sun.management.jmxremote.ssl=false", "-Dcom.sun.management.jmxremote.authenticate=false")
+fork := true
 
 
 //DEPENDECIES-----------------------------------------------------------------
@@ -53,6 +56,7 @@ libraryDependencies += lwjglOrganization % "lwjgl-yoga"     % lwjglVersion
 //...
 
 //UniScalaLibrary
+libraryDependencies += "org.russoul" %% "macrosscalalib" % "0.0.1"
 libraryDependencies += "org.russoul" %% "uniscalalib" % "0.0.1"
 libraryDependencies in Scope.GlobalScope += "org.typelevel" %% "spire" % "0.14.1"
 //...
