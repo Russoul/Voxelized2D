@@ -16,6 +16,10 @@ import org.lwjgl.opengl.GL20._
 import org.lwjgl.opengl.GL30._
 import russoul.lib.common.Implicits._
 import russoul.lib.common._
+import Implicits._
+import spire.algebra._
+import spire.math._
+import spire.implicits._
 import RenderingEngine._
 import org.voxelized.pixelgame.render.RenderingEngine.RenderDataProvider.{ApplyPostRenderState, ApplyPreRenderState, ProvideShaderData}
 
@@ -102,7 +106,7 @@ class RenderingEngine(private val game: Voxelized2D) {
       def draw(windowInfo: WindowInfo): Unit ={
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT) // clear the framebuffer
 
-        glClearColor(Defaults.initialBackgroundColor._0, Defaults.initialBackgroundColor._1, Defaults.initialBackgroundColor._2, 1)
+        glClearColor(Defaults.initialBackgroundColor.x, Defaults.initialBackgroundColor.y, Defaults.initialBackgroundColor.z, 1)
 
         drawUI(windowInfo)
 

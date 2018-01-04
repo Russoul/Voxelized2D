@@ -1,10 +1,36 @@
+inThisBuild(Seq(
+  scalaOrganization := "org.typelevel",
+  scalaVersion := "2.12.4-bin-typelevel-4",
+  scalacOptions += "-Yliteral-types",
+
+
+  scalacOptions ++= Seq(
+    "-deprecation",
+    "-encoding",
+    "UTF-8",
+    "-feature",
+    "-language:existentials",
+    "-language:experimental.macros",
+    "-language:higherKinds",
+    "-language:implicitConversions",
+    "-unchecked",
+    "-Xfuture",
+    "-Xlint:-unused,_",
+    //    "-Yliteral-types",
+    "-Yno-adapted-args",
+    "-Xprint:jvm"
+    //    "-Ywarn-value-discard"
+  )
+))
+
 
 lazy val coreSettings = Seq(
   name := "voxelized2d",
   version := "0.0.1",
-  scalaVersion := "2.12.3",
+  //scalaVersion := "2.12.3",
   organizationName := "org.voxelized"
 )
+
 
 val lwjglOrganization = "org.lwjgl"
 val lwjglVersion = "3.1.2"
@@ -58,7 +84,7 @@ libraryDependencies += lwjglOrganization % "lwjgl-yoga"     % lwjglVersion
 //UniScalaLibrary
 libraryDependencies += "org.russoul" %% "macrosscalalib" % "0.0.1"
 libraryDependencies += "org.russoul" %% "uniscalalib" % "0.0.1"
-libraryDependencies in Scope.GlobalScope += "org.typelevel" %% "spire" % "0.14.1"
+libraryDependencies in Scope.GlobalScope += scalaOrganization.value %% "spire" % "0.14.1"
 //...
 
 

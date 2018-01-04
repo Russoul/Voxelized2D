@@ -4,6 +4,10 @@ import russoul.lib.common._
 import russoul.lib.common.Implicits._
 import russoul.lib.common.math.geometry.simple.Rectangle2Over
 
+import spire.algebra._
+import spire.math._
+import spire.implicits._
+
 
 /**
   * Created by russoul on 12.03.17.
@@ -29,7 +33,7 @@ class Camera(var view: Rectangle2F)
     */
   def genTranslationMatrix(width:Float, height:Float): Mat4[Float] =
   {
-    Mat4F.translation(-view.center._0 +width/2, -view.center._1 + height/2,0)
+    Mat4F.translation(-view.center(0) +width/2, -view.center(1) + height/2,0)
   }
 
 }

@@ -38,20 +38,20 @@ class Shader(vertexSource: String, fragmentSource: String) {
     glUniform1i(getUniform(name), if (value) 1 else 0)
   }
 
-  def setInt(name: String, value: Int)
+  def setInt(name: String, value: Int) : Unit =
   {
     enable()
     glUniform1i(getUniform(name), value)
   }
 
-  def setFloat(name: String, value: Float)
+  def setFloat(name: String, value: Float) : Unit =
   {
     enable()
     glUniform1f(getUniform(name), value)
   }
 
 
-  def setVec2(name: String, x: Float, y: Float)
+  def setVec2(name: String, x: Float, y: Float) : Unit =
   {
     enable()
     glUniform2f(getUniform(name), x, y)
@@ -96,7 +96,7 @@ class Shader(vertexSource: String, fragmentSource: String) {
   /**
     * will check if it is already enabled
     */
-  def enable()
+  def enable() : Unit =
   {
     if(!isInUse())glUseProgram(ID)
 
@@ -105,7 +105,7 @@ class Shader(vertexSource: String, fragmentSource: String) {
   /**
     * will check if it is already disabled
     */
-  def disable()
+  def disable() : Unit =
   {
     if(isInUse())glUseProgram(0)
   }

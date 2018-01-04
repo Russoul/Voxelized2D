@@ -14,11 +14,8 @@ import russoul.lib.common.utils.ColorUtils._
 import shapeless.Nat
 import Implicits._
 import org.voxelized.pixelgame.render.shader.Shader
-import russoul.lib.common.Abstraction.Con
-import russoul.lib.common.TypeClasses.{Field, Tensor1}
 import russoul.lib.common.utils.{Arr, ColorUtils, Timer}
 import ColorUtils._
-import russoul.lib.common.math.algebra.Vec
 import russoul.lib.common.math.geometry.simple.Square2Over
 import Nat._
 import org.lwjgl.opengl.{GL11, GL13, GL30}
@@ -30,6 +27,12 @@ import russoul.lib.common.math.CollisionEngineF
 import russoul.lib.common._
 import spire.syntax.cfor._
 import MemoryStack._
+import russoul.lib.macros._
+
+
+import spire.algebra._
+import spire.math._
+import spire.implicits._
 
 import scala.reflect.ClassTag
 import scala.util.Failure
@@ -124,7 +127,7 @@ class CorePack extends IPack {
 
     for(i <- 0 until n){
       for(j <- 0 until n){
-        val point = min + ext ⊗ Float2((2 * i + 1) / n.toFloat, (2 * j + 1)/n.toFloat)
+        val point = min + Float2(ext(0) * (2 * i + 1) / n.toFloat, ext(1) * (2 * j + 1) / n.toFloat)
         val qef = calcQEF(point, lines)
 
         if(qef < bestQEF){
@@ -137,15 +140,15 @@ class CorePack extends IPack {
     bestPoint
   }
 
-  def sampleIntersectionBrute(line : Line2F, n: Int, f : Float2 => Float) : Float2 = {
+  def sampleIntersectionBrute(line : Line2F, n: Int, f : FShape2) : Float2 = {
     val ext = line.end - line.start
 
     var bestAbs = 100000000F //placeholder TODO
     var bestPoint = nil[Float2]
 
     for(i <- 0 to n){
-      val point = line.start + ext * (i.toFloat / n.toFloat)
-      val den = f(point)
+      val point = line.start + (i.toFloat / n.toFloat) *: ext
+      val den = f.density(point)
       val abs = Math.abs(den)
 
       if(abs < bestAbs){
@@ -158,19 +161,19 @@ class CorePack extends IPack {
     bestPoint
   }
 
-  def sampleTangent(square: Square2F, n: Int, f : Float2 => Float) : Float2 = {
+  def sampleTangent(square: Square2F, n: Int, f : FShape2) : Float2 = {
     val ext = Float2(square.extent,square.extent)
     val min = square.center - ext
 
-    val denAtCenter = f(square.center)
+    val denAtCenter = f.density(square.center)
 
     var closest = denAtCenter + 10000000F //TODO placeholder
     var closestPoint = square.center
 
     for(i <- 0 to n){
       for(j <- 0 to n){
-        val point = min + ext ⊗ Float2((2F * i) / n.toFloat, (2F * j)/n.toFloat)
-        val den = f(point)
+        val point = min + Float2(ext(0) * (2 * i) / n.toFloat, ext(1) * (2 * j) / n.toFloat)
+        val den = f.density(point)
         val attempt = Math.abs(den - denAtCenter)
         if(attempt < closest && (point - square.center).squaredLength() != 0){
           closest = attempt
@@ -185,10 +188,10 @@ class CorePack extends IPack {
     //if(shape.density(square.center + normalRaw * extForNormal) > denAtCenter) normalRaw else -normalRaw
   }
 
-  def extForNormal(blockSize : Float): RealF = blockSize / 100F //TODO is this value correct, why this ?
+  def extForNormal(blockSize : Float): Float = blockSize / 100F //TODO is this value correct, why this ?
 
 
-  def makeLines(vg: VoxelGrid2[Float], features : Array[Float2]) : Arr[Line2F] = {
+  def makeLines(vg: VoxelGrid2, features : Array[Float2]) : Arr[Line2F] = {
     val ret = new Arr[Line2F]()
 
     for(y <- 0 until vg.sizeY - 1) {
@@ -217,7 +220,7 @@ class CorePack extends IPack {
     ret
   }
 
-  def makeTriangles(vg : VoxelGrid2[Float], features : Array[Float2], intersections : Array[Arr[Float2]], extra : Array[Arr[Float2]]) : Arr[Triangle2F] = {
+  def makeTriangles(vg : VoxelGrid2, features : Array[Float2], intersections : Array[Arr[Float2]], extra : Array[Arr[Float2]]) : Arr[Triangle2F] = {
 
     val ret = new Arr[Triangle2F]()
 
@@ -273,7 +276,7 @@ class CorePack extends IPack {
     ret
   }
 
-  def makeVertex(vg: VoxelGrid2[Float], tr: Arr[Triangle2F], x: Int, y: Int, f : Float2 => Float, accuracy: Int, features : Array[Float2], outIntersections : Arr[Float2], outExtra : Arr[Float2]) : Float2 = {
+  def makeVertex(vg: VoxelGrid2, tr: Arr[Triangle2F], x: Int, y: Int, f : FShape2, accuracy: Int, features : Array[Float2], outIntersections : Arr[Float2], outExtra : Arr[Float2]) : Float2 = {
     val epsilon = vg.a/accuracy
 
     val p0 = vg.get(x, y)
@@ -309,9 +312,9 @@ class CorePack extends IPack {
 
           val ip = sampleIntersectionBrute(Line2F(v_a,v_b), accuracy, f) //find point of intersection of the surface with this edge with given precision (sampling algorith is used)
           val full = if(p_a <= 0) v_a else v_b //choose the end point of the edge to draw a triangle with
-          circleRenderer.add(RegularConvexPolygon2(ip, 0.1F,Nat._16), 0F, Blue) //debug render
+          circleRenderer.add(RegularConvexPolygon2(ip, 0.1F,16), 0F, Blue) //debug render
           val dir = sampleTangent(Square2F(ip, extForNormal), accuracy, f) //find tangent line to the surface at found point of intersection
-          val line = Line2F(ip - dir / extForNormal, ip + dir / extForNormal)//^
+          val line = Line2F(ip - dir * (1 / extForNormal) , ip + dir * (1 / extForNormal) )//^
           tangents += line //put it to the list of all found tangents
 
           outIntersections += ip //add intersection point to the list of all intersection points
@@ -364,7 +367,7 @@ class CorePack extends IPack {
     * @param accuracy
     * @return outline and triangle mesh for rendering + generated features
     */
-  def makeContour(vg: VoxelGrid2[Float], f : Float2 => Float, accuracy: Int) : ContourData = {
+  def makeContour(vg: VoxelGrid2, f : FShape2, accuracy: Int) : ContourData = {
     val res1 = new Arr[Line2F]()
     val res2 = new Arr[Triangle2F]()
 
@@ -433,7 +436,7 @@ class CorePack extends IPack {
 
 
 
-          circleRenderer.add(RegularConvexPolygon2(interpolatedVertex, 0.1F,Nat._16), 0F, Yellow)//debug render of feature vertex
+          circleRenderer.add(RegularConvexPolygon2(interpolatedVertex, 0.1F, 16), 0F, Yellow)//debug render of feature vertex
 
 
           if(vert1 != null) res1 += Line2F(interpolatedVertex, vert1) //generated lines
@@ -459,10 +462,10 @@ class CorePack extends IPack {
 
 
   val point = Float2(0,0)
-  var grid = new VoxelGrid2[Float](BLOCK_SIZE,CHUNK_SIZE,CHUNK_SIZE)
+  var grid = new VoxelGrid2(BLOCK_SIZE,CHUNK_SIZE,CHUNK_SIZE)
 
 
-  def gridRectangle2(min : Float2, grid : VoxelGrid2[Float]): Rectangle2F = {
+  def gridRectangle2(min : Float2, grid : VoxelGrid2): Rectangle2F = {
     val extent = Float2(grid.a * grid.sizeX/2, grid.a * grid.sizeY/2)
     Rectangle2F(min + extent, extent)
   }
@@ -495,10 +498,10 @@ class CorePack extends IPack {
     ret
   }
 
-  def fillInGrid(vg: VoxelGrid2[Float], f : Float2 => Float) : Unit = {
+  def fillInGrid(vg: VoxelGrid2, f : FShape2) : Unit = {
     for(y <- 0 until vg.verticesY){
       for(x <- 0 until vg.verticesX){
-        vg.grid(y * vg.verticesX + x) = f(point + Float2(vg.a * x, vg.a * y))
+        vg.grid(y * vg.verticesX + x) = f.density(point + Float2(vg.a * x, vg.a * y))
       }
     }
   }
@@ -524,7 +527,7 @@ class CorePack extends IPack {
 
 
 
-  def nonEmptyBlock(vg : VoxelGrid2[Float], x : Int, y : Int) : Boolean = {
+  def nonEmptyBlock(vg : VoxelGrid2, x : Int, y : Int) : Boolean = {
     val p0 = vg.get(x, y)
     val p1 = vg.get(x + 1, y)
     val p2 = vg.get(x, y + 1)
@@ -533,9 +536,9 @@ class CorePack extends IPack {
     p0 <= 0 || p1 <= 0 || p2 <= 0 || p3 <= 0
   }
 
-  def emptyBlock(vg : VoxelGrid2[Float], x : Int, y : Int) = !nonEmptyBlock(vg,x,y)
+  def emptyBlock(vg : VoxelGrid2, x : Int, y : Int) = !nonEmptyBlock(vg,x,y)
 
-  def fullBlock(vg : VoxelGrid2[Float], x : Int, y : Int) : Boolean = {
+  def fullBlock(vg : VoxelGrid2, x : Int, y : Int) : Boolean = {
     val p0 = vg.get(x, y)
     val p1 = vg.get(x + 1, y)
     val p2 = vg.get(x, y + 1)
@@ -544,8 +547,8 @@ class CorePack extends IPack {
     p0 <= 0 && p1 <= 0 && p2 <= 0 && p3 <= 0
   }
 
-  @inline def asFloat(a : Int2) : Float2 = Float2(a._0, a._1)
-  @inline def truncate(a : Float2) : Int2 = Int2(a._0.toInt, a._1.toInt)
+  @inline def asFloat(a : Int2) : Float2 = Float2(a.x, a.y)
+  @inline def truncate(a : Float2) : Int2 = Int2(a.x.toInt, a.y.toInt)
 
   /**
     * triangle mapped on texture rect resulting in texture coords
@@ -581,11 +584,11 @@ class CorePack extends IPack {
     val p2 = delta ⊗ ddp2 + minF
     val p3 = delta ⊗ ddp3 + minF
 
-    Array(p1,p2,p3)
+    array!(p1,p2,p3)
   }
 
 
-  @inline def rect(origin : Float2, grid: VoxelGrid2[Float]) : Rectangle2F = {
+  @inline def rect(origin : Float2, grid: VoxelGrid2) : Rectangle2F = {
     val extent = Float2(grid.sizeX, grid.sizeY) * (grid.a / 2F)
 
     Rectangle2F(origin + extent, extent)
@@ -658,7 +661,7 @@ class CorePack extends IPack {
             if(!inside){
               println("circle not inside bounds !")
             }else{
-              val newGrid = new VoxelGrid2[Float](BLOCK_SIZE, CHUNK_SIZE, CHUNK_SIZE)
+              val newGrid = new VoxelGrid2(BLOCK_SIZE, CHUNK_SIZE, CHUNK_SIZE)
               fillInGrid(newGrid, circle.density) //TODO we actually don't need this
               val circleData = makeContour(newGrid, circle.density , 32)
 
@@ -802,7 +805,7 @@ class CorePack extends IPack {
 
   def run(registry: GameRegistry): Unit ={
 
-    Thread.sleep(5000)
+    //Thread.sleep(30000)
 
     this.registry = registry
     this.renderer = registry.Pack.renderer
@@ -825,14 +828,20 @@ class CorePack extends IPack {
     val shape = ((((circle1 | circle2) | rec ) - circle3 - circle4 - circle5) | rec)
 
 
-    val generator : Float2 => Float = shape.density
-    //val generator : Float2 => Float =
+    //val generator : Float2 => Float = shape.density
+
+
+    for(i <- 0 until 10){
+      fillInGrid(grid, shape)
+      makeContour(grid, shape, 32) //accuracy < 32 introduces visual artifacts
+      grid = new VoxelGrid2(BLOCK_SIZE,CHUNK_SIZE,CHUNK_SIZE)
+    }
 
 
 
     val data = Timer.timed(dt => s"dual contouring (with grid filling) took $dt ms"){
-      fillInGrid(grid, generator)
-      makeContour(grid, generator, 32) //accuracy < 32 introduces visual artifacts
+      fillInGrid(grid, shape)
+      makeContour(grid, shape, 32) //accuracy < 32 introduces visual artifacts
     }
 
 
@@ -843,7 +852,7 @@ class CorePack extends IPack {
 
     grid.foreachVertex( (v,s) => {
       val t = 0
-      circleRenderer.add(RegularConvexPolygon2(v, rad, Nat._16), 0, if(s > 0) White else if(s < 0) White ⊗ Float3(t,t,t) else Green)
+      circleRenderer.add(RegularConvexPolygon2(v, rad, 16), 0, if(s > 0) White else if(s < 0) White ⊗ Float3(t,t,t) else Green)
     })
 
     data.lines.foreach(line => linesRenderer.add(line, 0, Red))
@@ -854,8 +863,8 @@ class CorePack extends IPack {
     //TODO debug
     linesRenderer.add(Line2F(Float2(0,0), Float2(1,0)), 0, Red)
     val t = 64F/256F
-    tTriangleRenderer.add(Triangle2F(Float2(0,0), Float2(1,0), Float2(1,1)), 0, Array(Float2(0,0), Float2(t,0), Float2(t,t)), White)
-    tTriangleRenderer.add(Triangle2F(Float2(0,0), Float2(1,1), Float2(0,1)), 0, Array(Float2(0,0), Float2(t,t), Float2(0,t)), White)
+    tTriangleRenderer.add(Triangle2F(Float2(0,0), Float2(1,0), Float2(1,1)), 0, array!(Float2(0,0), Float2(t,0), Float2(t,t)), White)
+    tTriangleRenderer.add(Triangle2F(Float2(0,0), Float2(1,1), Float2(0,1)), 0, array!(Float2(0,0), Float2(t,t), Float2(0,t)), White)
 
     tTriangleRenderer.construct()
     linesRenderer.construct()

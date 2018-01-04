@@ -6,8 +6,10 @@ import org.lwjgl.opengl.GL11._
 import russoul.lib.common._
 import russoul.lib.common.Implicits._
 import russoul.lib.common.math.geometry.complex.RegularConvexPolygon2
-import shapeless.Nat
-import shapeless.ops.nat.ToInt
+import singleton.ops.XInt
+import spire.math._
+import spire.algebra._
+import spire.implicits._
 
 /**
   * Created by russoul on 15.07.2017.
@@ -17,7 +19,8 @@ class RenderRegularConvexPolygonColor extends RendererVertFragDefault with Attri
   //override val vertexSize: Int = 6 already set in AttribPointersVertFragColor
 
 
-  def add[N <: Nat : ToInt](shape: RegularConvexPolygon2[Float,N], zLevel: Float, color: Float3) : Unit = {
+
+  def add[N <: XInt : ValueOf](shape: RegularConvexPolygon2[Float,N], zLevel: Float, color: Float3) : Unit = {
     val angle = 2*Math.PI/shape.getN()
 
     vertexPool += shape.center.x
